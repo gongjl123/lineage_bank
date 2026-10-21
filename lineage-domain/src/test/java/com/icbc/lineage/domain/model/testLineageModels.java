@@ -1,5 +1,6 @@
 package com.icbc.lineage.domain.model;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.icbc.lineage.domain.exception.DataValidationException;
 import org.junit.Assert;
 import org.junit.Test;
@@ -35,12 +36,26 @@ public class testLineageModels {
         LineageDocument document = new LineageDocument("1.0", "d", "a.sql", List.of(derivation),
                 Map.of("business_line", "std"));
         Assert.assertEquals(BusinessLine.STD, document.businessLine(BusinessLine.EAST));
+        Assert.assertEquals("1.0", document.schemaVersion());
+        Assert.assertEquals("std", document.metadata().get("business_line"));
         Assert.assertEquals(BusinessLine.YBT,
                 new LineageDocument("1.0", "d2", "b.sql", List.of(), Map.of()).businessLine(BusinessLine.YBT));
 
         LineageIssue issue = LineageIssue.of("X", "message", "d", "/", LineageIssue.Severity.WARNING)
                 .with("target", "S.O::C");
         Assert.assertEquals("S.O::C", issue.data().get("target"));
+        Assert.assertEquals("d", issue.document());
+        Assert.assertEquals("/", issue.location());
+        Assert.assertEquals(LineageIssue.Severity.WARNING, issue.severity());
+        List<LineageIssue> normalizedIssues = new ArrayList<>(List.of(issue));
+        NormalizedDocument normalized = new NormalizedDocument("a.json", BusinessLine.EAST,
+                new ObjectMapper().createObjectNode(), document, normalizedIssues);
+        normalizedIssues.clear();
+        Assert.assertEquals("a.json", normalized.filename());
+        Assert.assertEquals(BusinessLine.EAST, normalized.requestedLine());
+        Assert.assertTrue(normalized.original().isObject());
+        Assert.assertEquals(document, normalized.document());
+        Assert.assertEquals(List.of(issue), normalized.issues());
         DataValidationException exception = new DataValidationException(List.of(issue));
         Assert.assertEquals("message", exception.getMessage());
         Assert.assertEquals(List.of(issue), exception.getIssues());

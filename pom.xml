@@ -141,6 +141,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>2.22.2</version>
                 <configuration>
+                    <argLine>@{argLine}</argLine>
                     <includes>
                         <include>**/test*.java</include>
                     </includes>
@@ -154,11 +155,17 @@
                     <execution>
                         <id>prepare-agent</id>
                         <goals><goal>prepare-agent</goal></goals>
+                        <configuration>
+                            <destFile>${java.io.tmpdir}/${project.artifactId}-jacoco.exec</destFile>
+                        </configuration>
                     </execution>
                     <execution>
                         <id>report</id>
                         <phase>verify</phase>
                         <goals><goal>report</goal></goals>
+                        <configuration>
+                            <dataFile>${java.io.tmpdir}/${project.artifactId}-jacoco.exec</dataFile>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

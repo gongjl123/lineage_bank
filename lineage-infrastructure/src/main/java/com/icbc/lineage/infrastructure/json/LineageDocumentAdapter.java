@@ -45,9 +45,9 @@ public class LineageDocumentAdapter {
         boolean standard = original.isObject() && original.has("schema_version");
         schemaValidator.validate(original, standard, filename);
         Adapted adapted = standard ? standard(original) : legacy(original, filename);
-        List<LineageIssue> issues = new ArrayList<>(adapted.warnings);
-        issues.addAll(semanticValidator.validate(adapted.document));
-        return new NormalizedDocument(filename, requestedLine, original, adapted.document, issues);
+        List<LineageIssue> issues = new ArrayList<>(adapted.warnings());
+        issues.addAll(semanticValidator.validate(adapted.document()));
+        return new NormalizedDocument(filename, requestedLine, original, adapted.document(), issues);
     }
 
     private Adapted standard(JsonNode root) {
