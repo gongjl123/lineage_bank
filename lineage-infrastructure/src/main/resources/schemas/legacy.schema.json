@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Existing SQL lineage export",
+  "type": "object",
+  "required": ["script_name", "derivations"],
+  "additionalProperties": false,
+  "properties": {
+    "script_name": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "sources": {"type": "array", "items": {"type": "string"}},
+    "targets": {"type": "array", "items": {"type": "string"}},
+    "derivations": {
+      "type": "array", "maxItems": 100000,
+      "items": {
+        "type": "object", "required": ["target", "sources", "transform_logic"], "additionalProperties": false,
+        "properties": {
+          "target": {"type": "string", "maxLength": 1024, "pattern": "^[^\\s:<>]+\\.[^\\s:<>]+::[^\\s:<>]+$"},
+          "sources": {"type": "array", "maxItems": 10000, "items": {"type": "string", "maxLength": 100000, "pattern": "^<[^>]+>(CONST:[\\s\\S]*|[^\\s:<>]+\\.[^\\s:<>]+::[^\\s:<>]+)$"}},
+          "transform_logic": {"type": "object", "additionalProperties": {"type": "object"}}
+        }
+      }
+    }
+  }
+}

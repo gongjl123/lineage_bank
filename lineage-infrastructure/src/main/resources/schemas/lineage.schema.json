@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EAST lineage document v1",
+  "type": "object",
+  "required": ["schema_version", "dataset_id", "script_name", "derivations"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "dataset_id": {"type": "string", "minLength": 1, "maxLength": 512},
+    "script_name": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "metadata": {"type": "object"},
+    "derivations": {"type": "array", "maxItems": 100000, "items": {"$ref": "#/$defs/derivation"}}
+  },
+  "$defs": {
+    "reference": {"type": "string", "maxLength": 1024, "pattern": "^[^\\s:<>]+\\.[^\\s:<>]+::[^\\s:<>]+$"},
+    "path": {"type": "string", "minLength": 1, "maxLength": 256},
+    "logic": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "source": {"type": "string"}, "YWGSBM": {"type": "string"},
+          "expression": {"type": "string"}, "sql_fragment": {"type": "string"},
+          "filters": {"type": "array", "items": {"type": "object"}},
+          "update_sources": {"type": "array", "items": {"type": "object"}}
+        }
+      }
+    },
+    "source": {
+      "oneOf": [
+        {"type": "object", "required": ["kind", "ref", "path"], "additionalProperties": false, "properties": {"kind": {"const": "column"}, "ref": {"$ref": "#/$defs/reference"}, "path": {"$ref": "#/$defs/path"}}},
+        {"type": "object", "required": ["kind", "value", "path"], "additionalProperties": false, "properties": {"kind": {"const": "constant"}, "value": {"type": "string", "maxLength": 100000}, "path": {"$ref": "#/$defs/path"}}}
+      ]
+    },
+    "derivation": {
+      "type": "object", "required": ["target", "sources", "transform_logic"], "additionalProperties": false,
+      "properties": {
+        "target": {"$ref": "#/$defs/reference"},
+        "sources": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/source"}},
+        "transform_logic": {"$ref": "#/$defs/logic"},
+        "metadata": {"type": "object"}
+      }
+    }
+  }
+}
