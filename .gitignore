@@ -1,0 +1,16 @@
+target/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+.idea/
+.vscode/
+uploads/
+var/
+sources.local.json
+application-local.yml
+application-local.yaml
+application-local.properties
+*.xlsx
+*.xls
+node_modules/
