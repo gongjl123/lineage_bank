@@ -31,6 +31,7 @@ public class testBusinessIndex {
         assertTrue(business.matches("票据垫款", "column:BANK.T::X"));
         assertTrue(business.matches("票据垫款", "table:BANK.T"));
         assertFalse(business.matches("票据垫款", "table:BANK.A"));
+        assertTrue(business.matchingNodeIds("票据垫款").contains("column:BANK.T::X"));
 
         List<Map<String, Object>> branches = business.records("票据垫款", "column:BANK.T::X");
         assertEquals(2, branches.size());

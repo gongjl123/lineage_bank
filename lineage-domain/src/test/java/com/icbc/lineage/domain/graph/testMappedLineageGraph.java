@@ -63,6 +63,8 @@ public class testMappedLineageGraph {
 
         Map<String, Object> subgraph = graph.subgraph("column:SRC.A::F", "both", 2,
                 30, true, 30, null);
+        assertEquals("mapped", graph.decorateResult(graph.projectedGraph().subgraph(
+                "column:BUS.B::F", "both", 1, 30, true, 30, null)).get("lineage_view"));
         assertEquals("column:BUS.B::F", subgraph.get("root"));
         assertEquals("mapped", subgraph.get("lineage_view"));
         assertTrue(((List<?>) subgraph.get("edges")).stream().map(item -> (Map<?, ?>) item)

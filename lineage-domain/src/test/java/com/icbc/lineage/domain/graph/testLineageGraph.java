@@ -46,6 +46,10 @@ public class testLineageGraph {
         assertTrue(((Map<?, ?>) stats.get("issue_counts")).containsKey("EMPTY_SOURCES_USED"));
         assertTrue(graph.issues().stream().anyMatch(item -> item.code().equals("BASE")));
         assertFalse(graph.issues().stream().anyMatch(item -> item.message().equals("stale")));
+        assertFalse(graph.entityRecords().isEmpty());
+        assertFalse(graph.derivationRecords().isEmpty());
+        assertFalse(graph.relationRecordsForStorage().isEmpty());
+        assertTrue(graph.relationRecordsForStorage().stream().allMatch(item -> item.containsKey("derivation_id")));
 
         Map<String, Object> node = graph.node(COLUMN_A_ID);
         assertEquals("column", node.get("type"));

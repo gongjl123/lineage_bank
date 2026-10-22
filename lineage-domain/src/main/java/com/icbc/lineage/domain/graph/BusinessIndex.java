@@ -173,6 +173,12 @@ public final class BusinessIndex {
                 || tableTargets.getOrDefault(name, Map.of()).containsKey(nodeId);
     }
 
+    public Set<String> matchingNodeIds(String name) {
+        Set<String> result = new LinkedHashSet<>(targets.getOrDefault(name, Set.of()));
+        result.addAll(tableTargets.getOrDefault(name, Map.of()).keySet());
+        return Set.copyOf(result);
+    }
+
     public Map<String, Object> nodeInfo(String name, String nodeId) {
         Set<String> fields = tableTargets.getOrDefault(name, Map.of()).get(nodeId);
         int fieldCount = fields == null ? (targets.getOrDefault(name, Set.of()).contains(nodeId) ? 1 : 0) : fields.size();

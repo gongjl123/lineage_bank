@@ -202,6 +202,10 @@ public final class MappedLineageGraph {
         return graph;
     }
 
+    public Map<String, Object> decorateResult(Map<String, Object> source) {
+        return mappedResult(source);
+    }
+
     private Map<String, Object> mappedResult(Map<String, Object> source) {
         Map<String, Object> result = new LinkedHashMap<>(source);
         Object nodeRows = result.get("nodes");

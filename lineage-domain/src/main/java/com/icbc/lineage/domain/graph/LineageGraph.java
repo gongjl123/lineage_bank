@@ -433,6 +433,18 @@ public final class LineageGraph {
         return List.copyOf(issues);
     }
 
+    public List<Map<String, Object>> entityRecords() {
+        return nodes.values().stream().map(Node::toMap).toList();
+    }
+
+    public List<Map<String, Object>> derivationRecords() {
+        return derivations.stream().map(item -> Collections.unmodifiableMap(new LinkedHashMap<>(item))).toList();
+    }
+
+    public List<Map<String, Object>> relationRecordsForStorage() {
+        return relations.stream().map(item -> Collections.unmodifiableMap(new LinkedHashMap<>(item))).toList();
+    }
+
     public List<List<String>> cycleComponents(String graphLevel) {
         return cycles.getOrDefault(graphLevel, List.of());
     }
@@ -484,7 +496,8 @@ public final class LineageGraph {
                 requiredNode(target).unresolved = true;
             }
             List<LineageSource> projectedSources = derivation.sources().stream().map(this::projectSource).toList();
-            Map<String, Object> definition = result("id", digest(document.datasetId(), derivationIndex),
+            String derivationId = digest(document.datasetId(), derivationIndex);
+            Map<String, Object> definition = result("id", derivationId,
                     "document", document.datasetId(), "index", derivationIndex, "target", target,
                     "script_name", document.scriptName(), "sources", projectedSources,
                     "transform_logic", derivation.transformLogic(), "metadata", derivation.metadata(),
@@ -505,7 +518,8 @@ public final class LineageGraph {
                 String logicPath = resolveLogicPath(derivation.transformLogic(), source.path());
                 Map<String, Object> relation = result("id", digest(document.datasetId(), derivationIndex, sourceIndex),
                         "source", sourceId, "target", target, "document", document.datasetId(),
-                        "derivation_index", derivationIndex, "source_index", sourceIndex, "path", source.path(),
+                        "derivation_id", derivationId, "derivation_index", derivationIndex,
+                        "source_index", sourceIndex, "path", source.path(),
                         "logic_path", logicPath, "logic_inherited", logicPath != null && !logicPath.equals(source.path()),
                         "logic", logicPath == null ? Map.of() : derivation.transformLogic().get(logicPath),
                         "metadata", derivation.metadata(), "script_name", document.scriptName(),
