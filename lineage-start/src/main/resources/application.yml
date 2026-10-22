@@ -1,0 +1,24 @@
+server:
+  port: ${LINEAGE_PORT:8769}
+
+spring:
+  application:
+    name: lineage-bank
+  servlet:
+    multipart:
+      max-file-size: 64MB
+      max-request-size: 256MB
+
+lineage:
+  database:
+    backend: ${LINEAGE_DB_BACKEND:sqlite}
+    url: ${LINEAGE_DB_URL:jdbc:sqlite:./var/lineage.sqlite3}
+    schema: ${LINEAGE_DB_SCHEMA:lineage}
+    username: ${LINEAGE_DB_USERNAME:}
+    password: ${LINEAGE_DB_PASSWORD:}
+  upload:
+    directory: ${LINEAGE_UPLOAD_DIR:./var/uploads}
+    max-file-mb: ${LINEAGE_MAX_FILE_MB:64}
+    max-batch-mb: ${LINEAGE_MAX_BATCH_MB:512}
+    max-staged-mb: ${LINEAGE_MAX_STAGED_MB:1024}
+    ttl-seconds: ${LINEAGE_UPLOAD_TTL_SECONDS:3600}

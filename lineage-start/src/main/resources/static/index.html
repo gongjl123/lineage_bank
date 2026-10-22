@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>血缘数据分析</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div><strong>血缘数据分析</strong><span>V6 Java</span></div>
+    <nav>
+      <button id="refresh">刷新</button>
+      <button id="show-files">导入记录</button>
+      <button id="show-issues">数据质量</button>
+    </nav>
+  </header>
+  <main>
+    <section class="metrics" aria-label="数据统计">
+      <article><span>已导入 JSON</span><b id="documents">0</b></article>
+      <article><span>数据表</span><b id="tables">0</b></article>
+      <article><span>字段</span><b id="columns">0</b></article>
+      <article><span>来源依据</span><b id="relations">0</b></article>
+    </section>
+    <section class="toolbar panel">
+      <label>条线
+        <select id="line"><option value="east">EAST</option><option value="standard">STANDARD</option><option value="std">STD</option><option value="ybt">YBT</option></select>
+      </label>
+      <label class="file-button">选择 JSON<input id="files" type="file" accept=".json,application/json" multiple></label>
+      <button id="validate">仅校验</button>
+      <button id="import" class="primary">导入</button>
+      <span id="job-state" aria-live="polite">可增量提交新文件；已保存的历史文件无需重复选择。</span>
+    </section>
+    <section class="workspace">
+      <aside class="panel catalog">
+        <div class="heading"><h2>数据对象</h2><select id="view"><option value="mapped">业务映射视图</option><option value="raw">原始技术视图</option></select></div>
+        <input id="search" type="search" placeholder="搜索表名或中文名称">
+        <div id="catalog" class="list"><p class="muted">正在读取…</p></div>
+      </aside>
+      <section class="panel graph-panel">
+        <div class="heading"><div><h2 id="graph-title">血缘关系</h2><p id="graph-note" class="muted">选择左侧数据表查看上下游。</p></div>
+          <select id="direction"><option value="both">上下游</option><option value="upstream">上游</option><option value="downstream">下游</option></select>
+        </div>
+        <div id="graph" class="graph"><p class="empty">尚未选择数据对象</p></div>
+      </section>
+      <aside class="panel details"><div class="heading"><h2>对象详情</h2></div><div id="details"><p class="muted">点击关系图中的节点查看详情。</p></div></aside>
+    </section>
+  </main>
+  <dialog id="dialog"><form method="dialog"><button class="close" aria-label="关闭">×</button></form><h2 id="dialog-title"></h2><div id="dialog-content"></div></dialog>
+  <div id="notice" role="status" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>
