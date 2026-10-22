@@ -1,0 +1,78 @@
+@startuml
+title V6 Java 血缘系统核心类调用关系（简版）
+
+left to right direction
+skinparam backgroundColor #F7F9FC
+skinparam shadowing false
+skinparam roundcorner 12
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #52677A
+  ArrowColor #496780
+  FontColor #1F2937
+}
+
+class LineageController #E8F3FF {
+  +importJob()
+  +graph()
+  +evidence()
+}
+
+class ImportJobs #EAF8EE {
+  +submit()
+  +get()
+}
+
+class LineageStore #EAF8EE {
+  +importFiles()
+  +snapshot()
+  +reassign()
+}
+
+class LineageDocumentAdapter #FFF1E8 {
+  +parseAndNormalize()
+}
+
+class DruidValueLineageDecider #FFF1E8 {
+  +suppliesTargetValue()
+}
+
+class LineageGraph #F0ECFF {
+  +subgraph()
+  +evidence()
+  +impact()
+}
+
+class MappedLineageGraph #F0ECFF {
+  +subgraph()
+  +mappingStatus()
+}
+
+class JdbcLineageRepository #FFF7D6 {
+  +loadDocuments()
+  +replaceAll()
+}
+
+LineageController --> ImportJobs : 提交增量任务
+LineageController --> LineageStore : 查询血缘
+ImportJobs --> LineageStore : importFiles()
+LineageStore --> LineageDocumentAdapter : 解析并校验 JSON
+LineageDocumentAdapter --> DruidValueLineageDecider : SQL 值来源判断
+LineageStore --> LineageGraph : 构建原始图
+LineageStore --> MappedLineageGraph : 构建业务映射图
+LineageStore --> JdbcLineageRepository : 读取 / 事务保存
+
+note bottom of DruidValueLineageDecider
+  Java 原生实现
+  不调用 Python / sqlglot
+end note
+
+note bottom of JdbcLineageRepository
+  保存历史状态
+  支持 SQLite / GaussDB
+end note
+
+legend bottom
+  箭头表示主要方法调用；省略 DTO、辅助类和次要方法
+endlegend
+@enduml
