@@ -4,6 +4,7 @@ import com.alibaba.druid.pool.DruidDataSource;
 import com.icbc.lineage.api.storage.LineageRepository;
 import com.icbc.lineage.domain.catalog.NameDictionary;
 import com.icbc.lineage.domain.catalog.TableNameMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.sqlite.SQLiteDataSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -52,13 +53,20 @@ public class LineageStorageConfiguration {
     }
 
     @Bean
-    public TableNameMapper tableNameMapperSeed() {
-        return TableNameMapper.empty();
+    public CatalogSeedLoader catalogSeedLoader(ObjectMapper objectMapper) {
+        return new CatalogSeedLoader(objectMapper);
     }
 
     @Bean
-    public NameDictionary nameDictionarySeed() {
-        return NameDictionary.empty();
+    public TableNameMapper tableNameMapperSeed(CatalogSeedLoader loader,
+                                                @Value("${lineage.catalog.mapping-file:}") String path) {
+        return loader.tableMappings(path);
+    }
+
+    @Bean
+    public NameDictionary nameDictionarySeed(CatalogSeedLoader loader,
+                                               @Value("${lineage.catalog.name-dictionary-file:}") String path) {
+        return loader.nameDictionary(path);
     }
 
     private void createSqliteParent(String url) {

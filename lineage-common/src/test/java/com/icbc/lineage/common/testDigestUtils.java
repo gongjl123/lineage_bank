@@ -9,6 +9,8 @@ public class testDigestUtils {
     public void testSha256IsStable() {
         Assert.assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
                 DigestUtils.sha256("abc"));
+        Assert.assertEquals(DigestUtils.sha256("abc"),
+                DigestUtils.sha256("abc".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
     }
 
     @Test

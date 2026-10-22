@@ -1,6 +1,7 @@
 package com.icbc.lineage.infrastructure.storage;
 
 import com.alibaba.druid.pool.DruidDataSource;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.icbc.lineage.api.storage.LineageRepository;
 import org.junit.Rule;
 import org.junit.Test;
@@ -30,8 +31,9 @@ public class testLineageStorageConfiguration {
         LineageRepository repository = configuration.lineageRepository(sqlite, "sqlite", "lineage");
         assertEquals(7, repository.schemaVersion());
         repository.close();
-        assertTrue(configuration.tableNameMapperSeed().mappings().isEmpty());
-        assertTrue(configuration.nameDictionarySeed().entries().isEmpty());
+        CatalogSeedLoader loader = configuration.catalogSeedLoader(new ObjectMapper());
+        assertTrue(configuration.tableNameMapperSeed(loader, "").mappings().isEmpty());
+        assertTrue(configuration.nameDictionarySeed(loader, "").entries().isEmpty());
 
         DruidDataSource gauss = (DruidDataSource) configuration.lineageDataSource("gaussdb",
                 "jdbc:postgresql://127.0.0.1:5432/lineage", "user", "password");

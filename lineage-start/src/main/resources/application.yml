@@ -10,6 +10,9 @@ spring:
       max-request-size: 256MB
 
 lineage:
+  catalog:
+    mapping-file: ${LINEAGE_MAPPING_FILE:}
+    name-dictionary-file: ${LINEAGE_NAME_DICTIONARY_FILE:}
   database:
     backend: ${LINEAGE_DB_BACKEND:sqlite}
     url: ${LINEAGE_DB_URL:jdbc:sqlite:./var/lineage.sqlite3}
