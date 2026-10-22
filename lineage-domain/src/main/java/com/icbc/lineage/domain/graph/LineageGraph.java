@@ -27,7 +27,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
 
 /**
@@ -35,6 +34,11 @@ import java.util.stream.Collectors;
  * Relations always point from a source to a target.
  */
 public final class LineageGraph {
+
+    @FunctionalInterface
+    public interface EdgePredicate {
+        boolean test(String source, String target, String traversal);
+    }
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String TABLE = "table";
@@ -56,6 +60,7 @@ public final class LineageGraph {
     private final Map<Integer, Boolean> valueRelationCache = new HashMap<>();
     private final ValueLineageDecider valueLineageDecider;
     private final int documentCount;
+    private final BusinessIndex business;
 
     public LineageGraph(List<LineageDocument> documents, List<LineageIssue> initialIssues) {
         this(documents, initialIssues, relation -> true);
@@ -73,6 +78,7 @@ public final class LineageGraph {
             addDocument(document, targetDocuments);
         }
         finalizeSnapshot(targetDocuments);
+        this.business = new BusinessIndex(this);
     }
 
     public String resolve(String nodeId) {
@@ -159,7 +165,7 @@ public final class LineageGraph {
 
     public Map<String, Object> subgraph(String root, String direction, int depth, int maxNodes,
                                         boolean includeConstants, int maxEdges,
-                                        BiPredicate<String, String> edgeAllowed) {
+                                        EdgePredicate edgeAllowed) {
         requiredNode(root);
         List<String> directions = direction.equals("both")
                 ? List.of("upstream", "downstream") : List.of(direction);
@@ -207,7 +213,7 @@ public final class LineageGraph {
                         continue;
                     }
                     EdgePair pair = upstream ? new EdgePair(neighbor, current) : new EdgePair(current, neighbor);
-                    if (edgeAllowed != null && !edgeAllowed.test(pair.source(), pair.target())) {
+                    if (edgeAllowed != null && !edgeAllowed.test(pair.source(), pair.target(), entry.getKey())) {
                         continue;
                     }
                     if (entry.getValue().distance().get(current) >= depth) {
@@ -405,6 +411,26 @@ public final class LineageGraph {
         return cycles.getOrDefault(graphLevel, List.of());
     }
 
+    public BusinessIndex business() {
+        return business;
+    }
+
+    List<Map<String, Object>> relationRecords() {
+        return relations;
+    }
+
+    List<Map<String, Object>> definitionRecords() {
+        return derivations;
+    }
+
+    List<Integer> edgeRelationIndexes(String graphLevel, String source, String target) {
+        return outgoing(graphLevel).getOrDefault(source, Map.of()).getOrDefault(target, List.of());
+    }
+
+    List<String> childIds(String nodeId) {
+        return children.getOrDefault(nodeId, List.of());
+    }
+
     private void addDocument(LineageDocument document, Map<String, Set<String>> targetDocuments) {
         BusinessLine businessLine = document.businessLine(BusinessLine.EAST);
         for (int derivationIndex = 0; derivationIndex < document.derivations().size(); derivationIndex++) {
@@ -554,7 +580,7 @@ public final class LineageGraph {
     }
 
     private Traversal walk(String root, String direction, int depth, int maxNodes,
-                           boolean includeConstants, BiPredicate<String, String> edgeAllowed) {
+                           boolean includeConstants, EdgePredicate edgeAllowed) {
         Map<String, Map<String, List<Integer>>> adjacency = direction.equals("upstream")
                 ? incoming(level(root)) : outgoing(level(root));
         Map<String, Integer> distance = new LinkedHashMap<>();
@@ -569,7 +595,7 @@ public final class LineageGraph {
             for (String neighbor : new TreeSet<>(adjacency.getOrDefault(current, Map.of()).keySet())) {
                 String source = direction.equals("upstream") ? neighbor : current;
                 String target = direction.equals("upstream") ? current : neighbor;
-                if (edgeAllowed != null && !edgeAllowed.test(source, target)) {
+                if (edgeAllowed != null && !edgeAllowed.test(source, target, direction)) {
                     continue;
                 }
                 if (!includeConstants && requiredNode(neighbor).type.equals(CONSTANT)) {

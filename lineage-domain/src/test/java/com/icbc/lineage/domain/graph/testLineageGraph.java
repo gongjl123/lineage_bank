@@ -83,7 +83,7 @@ public class testLineageGraph {
                 .map(item -> (Map<?, ?>) item).anyMatch(item -> item.get("type").equals("constant")));
 
         Map<String, Object> filtered = graph.subgraph(COLUMN_B_ID, "upstream", 5, 20,
-                false, 20, (source, target) -> !source.equals(COLUMN_A_ID));
+                false, 20, (source, target, traversal) -> !source.equals(COLUMN_A_ID));
         assertEquals(1, ((List<?>) filtered.get("nodes")).size());
 
         Map<String, Object> limited = graph.subgraph(TABLE_A, "downstream", 5, 2,
