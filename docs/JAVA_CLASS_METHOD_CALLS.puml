@@ -1,5 +1,5 @@
 @startuml
-title V6 Java 血缘系统核心类调用关系（简版）
+title 血缘系统核心类调用关系
 
 left to right direction
 skinparam backgroundColor #F7F9FC
