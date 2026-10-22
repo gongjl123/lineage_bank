@@ -378,6 +378,11 @@ public final class LineageGraph {
 
     public Map<String, Object> evidence(String root, String source, String target,
                                         int offset, int limit, String query) {
+        return evidence(root, source, target, offset, limit, query, null);
+    }
+
+    public Map<String, Object> evidence(String root, String source, String target,
+                                        int offset, int limit, String query, Set<Integer> allowedRelations) {
         String level = level(root);
         Set<Integer> indices = new TreeSet<>();
         if (source != null && !source.isBlank() && target != null && !target.isBlank()) {
@@ -385,6 +390,9 @@ public final class LineageGraph {
         } else {
             incoming(level).getOrDefault(root, Map.of()).values().forEach(indices::addAll);
             outgoing(level).getOrDefault(root, Map.of()).values().forEach(indices::addAll);
+        }
+        if (allowedRelations != null) {
+            indices.retainAll(allowedRelations);
         }
         int unfilteredTotal = indices.size();
         String needle = valueOrEmpty(query).trim().toLowerCase(Locale.ROOT);

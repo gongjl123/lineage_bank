@@ -140,8 +140,13 @@ public final class MappedLineageGraph {
 
     public Map<String, Object> evidence(String root, String source, String target,
                                         int offset, int limit, String query) {
+        return evidence(root, source, target, offset, limit, query, null);
+    }
+
+    public Map<String, Object> evidence(String root, String source, String target,
+                                        int offset, int limit, String query, Set<Integer> allowedRelations) {
         Map<String, Object> result = new LinkedHashMap<>(graph.evidence(resolve(root),
-                optionalResolve(source), optionalResolve(target), offset, limit, query));
+                optionalResolve(source), optionalResolve(target), offset, limit, query, allowedRelations));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> sourceItems = (List<Map<String, Object>>) result.get("items");
         List<Map<String, Object>> items = new ArrayList<>();

@@ -52,6 +52,8 @@ public class testBusinessIndex {
         assertFalse(business.relationBusinessInfo(0).isEmpty());
         assertTrue(business.relationBusinessInfo(100).isEmpty());
         assertEquals(2, business.relationIndexes("票据垫款", target).size());
+        assertEquals(2, graph.evidence(target, "", "", 0, 20, "",
+                business.relationIndexes("票据垫款", target)).get("total"));
         assertEquals(2, business.edgeBusinessCount("column", source, target, "票据垫款", ""));
         assertTrue(business.edgeHasBusiness("column", source, target, "票据垫款"));
         assertEquals(2, business.edgeBusinessBreakdown("column", source, target, "票据垫款", "")

@@ -1,6 +1,7 @@
 package com.icbc.lineage.app;
 
 import com.icbc.lineage.api.ImportFile;
+import com.icbc.lineage.api.DocumentSelection;
 import com.icbc.lineage.domain.catalog.NameDictionary;
 import com.icbc.lineage.domain.catalog.TableNameMapper;
 import com.icbc.lineage.domain.exception.DataValidationException;
@@ -107,6 +108,16 @@ public class testImportPipeline {
         assertEquals(1, store.snapshot().documents().size());
         assertEquals("succeeded", uploads.get(session).get("status"));
         assertThrows(UploadException.class, () -> uploads.submit(session, false, jobs));
+
+        String storedId = "standard:upload";
+        String hash = store.snapshot().documents().get(storedId).hash();
+        List<DocumentSelection> selection = List.of(new DocumentSelection(storedId, hash));
+        Map<String, Object> preview = store.previewReassignment(selection, BusinessLine.YBT);
+        String reassignment = jobs.submitReassignment(selection, BusinessLine.YBT,
+                String.valueOf(preview.get("preview_token")));
+        await(jobs, reassignment);
+        assertEquals("reassign", jobs.get(reassignment).get("operation"));
+        assertTrue(store.snapshot().documents().containsKey("ybt:upload"));
 
         Map<String, Object> other = uploads.create(List.of(
                 new UploadSessions.UploadDeclaration("cancel.json", raw.length, 0)), BusinessLine.EAST);

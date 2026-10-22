@@ -53,7 +53,7 @@ public class LineageController {
 
     @GetMapping("/health")
     public Map<String, Object> health() {
-        return result("status", "ok", "version", "6.0.0-java", "storage", store.backend(),
+        return result("status", "ok", "version", "6.0.0", "storage", store.backend(),
                 "storage_schema_version", store.schemaVersion(), "default_lineage_view", "mapped",
                 "table_mapping", store.tableNameMapper().summary(),
                 "name_dictionary", store.nameDictionary().summary(),
@@ -110,9 +110,9 @@ public class LineageController {
     @GetMapping("/business-upstream")
     public Map<String, Object> businessUpstream(@RequestParam String id, @RequestParam String tag,
                                                 @RequestParam(defaultValue = "1") int depth,
-                                                @RequestParam(defaultValue = "120") int maxNodes,
-                                                @RequestParam(defaultValue = "false") boolean includeConstants,
-                                                @RequestParam(defaultValue = "1000") int maxEdges,
+                                                @RequestParam(name = "max_nodes", defaultValue = "120") int maxNodes,
+                                                @RequestParam(name = "include_constants", defaultValue = "false") boolean includeConstants,
+                                                @RequestParam(name = "max_edges", defaultValue = "1000") int maxEdges,
                                                 @RequestParam(defaultValue = "mapped") String view) {
         String root = resolve(id, view);
         Map<String, Object> result = business(view).fieldUpstream(root, tag, depth,
@@ -124,9 +124,9 @@ public class LineageController {
     public Map<String, Object> businessLineage(@RequestParam String id, @RequestParam String tag,
                                                @RequestParam(defaultValue = "both") String direction,
                                                @RequestParam(defaultValue = "1") int depth,
-                                               @RequestParam(defaultValue = "120") int maxNodes,
-                                               @RequestParam(defaultValue = "false") boolean includeConstants,
-                                               @RequestParam(defaultValue = "1000") int maxEdges,
+                                               @RequestParam(name = "max_nodes", defaultValue = "120") int maxNodes,
+                                               @RequestParam(name = "include_constants", defaultValue = "false") boolean includeConstants,
+                                               @RequestParam(name = "max_edges", defaultValue = "1000") int maxEdges,
                                                @RequestParam(defaultValue = "mapped") String view) {
         requireDirection(direction, true);
         String root = resolve(id, view);
@@ -156,10 +156,10 @@ public class LineageController {
                                      @RequestParam(defaultValue = "table") String kind,
                                      @RequestParam(defaultValue = "") String namespace,
                                      @RequestParam(defaultValue = "all") String status,
-                                     @RequestParam(defaultValue = "") String parentId,
+                                     @RequestParam(name = "parent_id", defaultValue = "") String parentId,
                                      @RequestParam(defaultValue = "0") int offset,
                                      @RequestParam(defaultValue = "50") int limit,
-                                     @RequestParam(defaultValue = "") String businessTag,
+                                     @RequestParam(name = "business_tag", defaultValue = "") String businessTag,
                                      @RequestParam(defaultValue = "") String line,
                                      @RequestParam(defaultValue = "mapped") String view) {
         Set<String> visible = businessTag.isBlank() ? null : business(view).matchingNodeIds(businessTag);
@@ -186,10 +186,10 @@ public class LineageController {
     public Map<String, Object> graph(@RequestParam String id,
                                      @RequestParam(defaultValue = "both") String direction,
                                      @RequestParam(defaultValue = "1") int depth,
-                                     @RequestParam(defaultValue = "120") int maxNodes,
-                                     @RequestParam(defaultValue = "false") boolean includeConstants,
-                                     @RequestParam(defaultValue = "1000") int maxEdges,
-                                     @RequestParam(defaultValue = "") String businessTag,
+                                     @RequestParam(name = "max_nodes", defaultValue = "120") int maxNodes,
+                                     @RequestParam(name = "include_constants", defaultValue = "false") boolean includeConstants,
+                                     @RequestParam(name = "max_edges", defaultValue = "1000") int maxEdges,
+                                     @RequestParam(name = "business_tag", defaultValue = "") String businessTag,
                                      @RequestParam(defaultValue = "mapped") String view) {
         requireDirection(direction, true);
         LineageGraph graph = graph(view);
@@ -211,7 +211,7 @@ public class LineageController {
     @GetMapping("/impact")
     public Map<String, Object> impact(@RequestParam String id,
                                       @RequestParam(defaultValue = "100") int depth,
-                                      @RequestParam(defaultValue = "20000") int maxNodes,
+                                      @RequestParam(name = "max_nodes", defaultValue = "20000") int maxNodes,
                                       @RequestParam(defaultValue = "mapped") String view) {
         return mapped(view) ? store.snapshot().mapped().impact(id, depth, bounded(maxNodes, 1, 50000))
                 : store.snapshot().raw().impact(id, depth, bounded(maxNodes, 1, 50000));
@@ -219,7 +219,7 @@ public class LineageController {
 
     @GetMapping("/associated-tables")
     public Map<String, Object> associatedTables(@RequestParam String id,
-                                                @RequestParam(defaultValue = "20000") int maxNodes,
+                                                @RequestParam(name = "max_nodes", defaultValue = "20000") int maxNodes,
                                                 @RequestParam(defaultValue = "mapped") String view) {
         return mapped(view) ? store.snapshot().mapped().associatedTables(id, bounded(maxNodes, 1, 50000))
                 : store.snapshot().raw().associatedTables(id, bounded(maxNodes, 1, 50000));
@@ -228,8 +228,8 @@ public class LineageController {
     @GetMapping("/table-path")
     public Map<String, Object> tablePath(@RequestParam String id, @RequestParam String target,
                                          @RequestParam String direction,
-                                         @RequestParam(defaultValue = "20000") int maxNodes,
-                                         @RequestParam(defaultValue = "") String businessTag,
+                                         @RequestParam(name = "max_nodes", defaultValue = "20000") int maxNodes,
+                                         @RequestParam(name = "business_tag", defaultValue = "") String businessTag,
                                          @RequestParam(defaultValue = "mapped") String view) {
         requireDirection(direction, false);
         Map<String, Object> result = mapped(view)
@@ -245,10 +245,18 @@ public class LineageController {
                                         @RequestParam(defaultValue = "0") int offset,
                                         @RequestParam(defaultValue = "30") int limit,
                                         @RequestParam(defaultValue = "") String q,
+                                        @RequestParam(name = "business_tag", defaultValue = "") String businessTag,
+                                        @RequestParam(name = "business_root", defaultValue = "") String businessRoot,
                                         @RequestParam(defaultValue = "mapped") String view) {
+        int pageSize = bounded(limit, 1, 100);
+        Set<Integer> allowed = null;
+        if (!businessTag.isBlank()) {
+            String root = businessRoot.isBlank() ? resolve(id, view) : resolve(businessRoot, view);
+            allowed = business(view).relationIndexes(businessTag, root);
+        }
         return mapped(view) ? store.snapshot().mapped().evidence(id, source, target, offset,
-                bounded(limit, 1, 100), q) : store.snapshot().raw().evidence(id, source, target, offset,
-                bounded(limit, 1, 100), q);
+                pageSize, q, allowed) : store.snapshot().raw().evidence(id, source, target, offset,
+                pageSize, q, allowed);
     }
 
     @GetMapping("/definitions")
@@ -306,8 +314,10 @@ public class LineageController {
     }
 
     @PostMapping("/document-files/reassign")
+    @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, Object> reassign(@RequestBody ReassignmentRequest request) {
-        return store.reassign(request.documents(), BusinessLine.from(request.targetLine()), request.previewToken());
+        return result("id", jobs.submitReassignment(request.documents(), BusinessLine.from(request.targetLine()),
+                request.previewToken()));
     }
 
     @DeleteMapping("/documents")
@@ -331,7 +341,7 @@ public class LineageController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, Object> importJob(@RequestBody ImportRequest request,
                                          @RequestParam String line,
-                                         @RequestParam(defaultValue = "false") boolean dryRun) {
+                                         @RequestParam(name = "dry_run", defaultValue = "false") boolean dryRun) {
         return result("id", jobs.submit(importFiles(request, line), dryRun));
     }
 
@@ -368,7 +378,7 @@ public class LineageController {
     @PostMapping("/import-sessions/{id}/submit")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, Object> submitUpload(@PathVariable String id,
-                                            @RequestParam(defaultValue = "false") boolean dryRun) {
+                                            @RequestParam(name = "dry_run", defaultValue = "false") boolean dryRun) {
         return uploads.submit(id, dryRun, jobs);
     }
 
@@ -459,7 +469,9 @@ public class LineageController {
             documents = documents == null ? List.of() : List.copyOf(documents);
         }
     }
-    public record ReassignmentRequest(List<DocumentSelection> documents, String targetLine, String previewToken) {
+    public record ReassignmentRequest(List<DocumentSelection> documents,
+                                      @com.fasterxml.jackson.annotation.JsonProperty("target_line") String targetLine,
+                                      @com.fasterxml.jackson.annotation.JsonProperty("preview_token") String previewToken) {
         public ReassignmentRequest {
             documents = documents == null ? List.of() : List.copyOf(documents);
         }

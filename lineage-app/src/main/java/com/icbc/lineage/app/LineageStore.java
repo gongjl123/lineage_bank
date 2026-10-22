@@ -64,6 +64,8 @@ public class LineageStore implements AutoCloseable {
         Map<String, StoredDocument> proposed = new LinkedHashMap<>(snapshot.documents());
         Set<String> batchIds = new java.util.HashSet<>();
         int changed = 0;
+        int added = 0;
+        int updated = 0;
         int unchanged = 0;
         for (ImportFile file : files) {
             NormalizedDocument normalized = adapter.parseAndNormalize(file.content(), file.filename(), file.line());
@@ -76,6 +78,11 @@ public class LineageStore implements AutoCloseable {
             if (current != null && current.hash().equals(hash)) {
                 unchanged++;
                 continue;
+            }
+            if (current == null) {
+                added++;
+            } else {
+                updated++;
             }
             LineageDocument graphDocument = graphDocument(id, normalized.document(), file.line().code());
             List<LineageIssue> issues = new ArrayList<>();
@@ -96,7 +103,11 @@ public class LineageStore implements AutoCloseable {
                     Comparator.comparing(StoredDocument::id)).toList(), candidate.raw(), batch);
             snapshot = candidate;
         }
-        return report(candidate, batch, dryRun);
+        Map<String, Object> report = report(candidate, batch, dryRun);
+        report.put("added", added);
+        report.put("updated", updated);
+        report.put("issues_returned", candidate.raw().issues().size());
+        return report;
     }
 
     public synchronized Map<String, Object> deleteDocuments(CollectionIds selection) {
@@ -140,14 +151,20 @@ public class LineageStore implements AutoCloseable {
             StoredDocument current = snapshot.documents().get(selectedItem.datasetId());
             String status;
             String destination = "";
+            String filename = current == null ? "" : current.filename();
+            String fromLine = current == null ? "" : current.line();
+            String reason;
             if (current == null) {
                 status = "missing";
+                reason = "文件不存在或已删除";
                 missing++;
             } else if (!current.hash().equals(selectedItem.hash())) {
                 status = "stale";
+                reason = "文件内容已变化，请刷新后重试";
                 stale++;
             } else if (current.line().equals(target)) {
                 status = "unchanged";
+                reason = "已经属于目标条线";
                 destination = current.id();
                 unchanged++;
             } else {
@@ -155,17 +172,20 @@ public class LineageStore implements AutoCloseable {
                 StoredDocument occupied = snapshot.documents().get(destination);
                 if (occupied != null && !selected.contains(destination)) {
                     status = "conflict";
+                    reason = "目标条线中已存在同一文档";
                     conflicts++;
                 } else {
                     status = "changed";
+                    reason = "可以更正";
                     changed++;
                 }
             }
             items.add(result("dataset_id", selectedItem.datasetId(), "destination_id", destination,
-                    "status", status, "hash", selectedItem.hash()));
+                    "status", status, "hash", selectedItem.hash(), "filename", filename,
+                    "from_line", fromLine, "to_line", target, "reason", reason));
         }
         String token = previewToken(selection, target);
-        return result("target_line", target, "changed", changed, "unchanged", unchanged,
+        return result("target_line", target, "total", selection.size(), "changed", changed, "unchanged", unchanged,
                 "conflicts", conflicts, "stale", stale, "missing", missing,
                 "can_apply", changed > 0 && conflicts == 0 && stale == 0 && missing == 0,
                 "preview_token", token, "items", items);

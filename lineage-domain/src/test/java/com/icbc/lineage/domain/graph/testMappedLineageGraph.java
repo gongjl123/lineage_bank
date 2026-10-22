@@ -81,6 +81,8 @@ public class testMappedLineageGraph {
 
         Map<String, Object> evidence = graph.evidence("column:REPORT.OUT::F", "column:SRC.A::F",
                 "column:REPORT.OUT::F", 0, 20, "");
+        assertEquals(0, graph.evidence("column:REPORT.OUT::F", "", "", 0, 20, "",
+                Set.of()).get("total"));
         assertEquals(2, evidence.get("total"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> items = (List<Map<String, Object>>) evidence.get("items");

@@ -95,7 +95,7 @@ public class testLineageController {
         ok("/api/table-mappings?q=S&offset=0&limit=10");
         ok("/api/mapping-status?q=S&offset=0&limit=10");
         ok("/api/nodes?kind=table&line=east");
-        ok("/api/nodes?kind=column&parentId=table:S.B&view=raw");
+        ok("/api/nodes?kind=column&parent_id=table:S.B&view=raw");
         ok("/api/node?id=column:S.B::X");
         ok("/api/node?id=column:S.B::X&view=raw");
         ok("/api/graph?id=column:S.B::X&direction=both&depth=3");
@@ -133,12 +133,12 @@ public class testLineageController {
         mvc.perform(get("/api/business-branches").param("id", "column:S.B::X").param("tag", tag))
                 .andExpect(status().isOk());
         ok("/api/business-label-evidence?id=column:S.B::X");
-        mvc.perform(get("/api/nodes").param("kind", "column").param("businessTag", tag))
+        mvc.perform(get("/api/nodes").param("kind", "column").param("business_tag", tag))
                 .andExpect(status().isOk());
-        mvc.perform(get("/api/graph").param("id", "column:S.B::X").param("businessTag", tag))
+        mvc.perform(get("/api/graph").param("id", "column:S.B::X").param("business_tag", tag))
                 .andExpect(status().isOk());
         mvc.perform(get("/api/table-path").param("id", "table:S.A").param("target", "table:S.B")
-                        .param("direction", "downstream").param("businessTag", tag)).andExpect(status().isOk());
+                        .param("direction", "downstream").param("business_tag", tag)).andExpect(status().isOk());
 
         mvc.perform(post("/api/validate?line=std").contentType(MediaType.APPLICATION_JSON)
                         .content(importBody("preview", document("preview"))))
@@ -155,13 +155,17 @@ public class testLineageController {
         List<DocumentSelection> selected = List.of(new DocumentSelection("east:sample", hash));
         Map<String, Object> preview = controller.previewReassignment(
                 new LineageController.ReassignmentRequest(selected, "standard", ""));
-        String reassignment = json.writeValueAsString(Map.of("documents", selected, "targetLine", "standard",
-                "previewToken", preview.get("preview_token")));
+        String reassignment = json.writeValueAsString(Map.of("documents", selected, "target_line", "standard",
+                "preview_token", preview.get("preview_token")));
         mvc.perform(post("/api/document-files/reassign/preview").contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(Map.of("documents", selected, "targetLine", "standard"))))
+                        .content(json.writeValueAsString(Map.of("documents", selected, "target_line", "standard"))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.can_apply").value(true));
-        mvc.perform(post("/api/document-files/reassign").contentType(MediaType.APPLICATION_JSON).content(reassignment))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.changed").value(1));
+        MvcResult reassigned = mvc.perform(post("/api/document-files/reassign")
+                        .contentType(MediaType.APPLICATION_JSON).content(reassignment))
+                .andExpect(status().isAccepted()).andReturn();
+        String reassignmentJob = json.readTree(reassigned.getResponse().getContentAsString()).get("id").asText();
+        await(reassignmentJob);
+        assertEquals(1, ((Map<?, ?>) jobs.get(reassignmentJob).get("result")).get("changed"));
 
         mvc.perform(delete("/api/documents").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ids\":[\"standard:sample\"]}"))

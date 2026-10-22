@@ -42,6 +42,8 @@ public class testLineageStore {
 
         Map<String, Object> first = store.importFiles(List.of(file("first", "S.B::X", "S.A::X")), false);
         assertEquals(1, first.get("changed"));
+        assertEquals(1, first.get("added"));
+        assertEquals(0, first.get("updated"));
         assertEquals(1, store.snapshot().documents().size());
         Map<String, Object> second = store.importFiles(List.of(file("second", "S.C::X", "S.B::X")), false);
         assertEquals(1, second.get("changed"));
@@ -57,7 +59,8 @@ public class testLineageStore {
         assertEquals(true, validation.get("dry_run"));
         assertTrue(oldSnapshot == store.snapshot());
 
-        store.importFiles(List.of(file("first", "S.B::X", "S.NEW::X")), false);
+        Map<String, Object> update = store.importFiles(List.of(file("first", "S.B::X", "S.NEW::X")), false);
+        assertEquals(1, update.get("updated"));
         assertEquals(2, store.snapshot().documents().size());
         assertThrows(IllegalArgumentException.class, () -> store.snapshot().raw().node("table:S.A"));
         assertEquals(2, store.documents("", "", 0, 20).get("total"));

@@ -1,4 +1,6 @@
 package com.icbc.lineage.api;
 
-public record DocumentSelection(String datasetId, String hash) {
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public record DocumentSelection(@JsonProperty("dataset_id") String datasetId, String hash) {
 }
