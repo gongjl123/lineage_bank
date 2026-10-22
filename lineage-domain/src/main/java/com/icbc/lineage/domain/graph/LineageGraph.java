@@ -40,6 +40,18 @@ public final class LineageGraph {
         boolean test(String source, String target, String traversal);
     }
 
+    @FunctionalInterface
+    interface ColumnProjector {
+        ColumnProjection project(String qualifiedName);
+    }
+
+    record ColumnProjection(String qualifiedName, String parentTable) {
+        static ColumnProjection identity(String qualifiedName) {
+            int separator = qualifiedName.lastIndexOf("::");
+            return new ColumnProjection(qualifiedName, qualifiedName.substring(0, separator));
+        }
+    }
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String TABLE = "table";
     private static final String COLUMN = "column";
@@ -61,6 +73,10 @@ public final class LineageGraph {
     private final ValueLineageDecider valueLineageDecider;
     private final int documentCount;
     private final BusinessIndex business;
+    private final List<LineageDocument> sourceDocuments;
+    private final List<LineageIssue> initialIssues;
+    private final ColumnProjector columnProjector;
+    private final boolean projected;
 
     public LineageGraph(List<LineageDocument> documents, List<LineageIssue> initialIssues) {
         this(documents, initialIssues, relation -> true);
@@ -68,8 +84,18 @@ public final class LineageGraph {
 
     public LineageGraph(List<LineageDocument> documents, List<LineageIssue> initialIssues,
                         ValueLineageDecider valueLineageDecider) {
+        this(documents, initialIssues, valueLineageDecider, ColumnProjection::identity, false);
+    }
+
+    LineageGraph(List<LineageDocument> documents, List<LineageIssue> initialIssues,
+                 ValueLineageDecider valueLineageDecider, ColumnProjector columnProjector,
+                 boolean projected) {
         this.documentCount = documents.size();
+        this.sourceDocuments = List.copyOf(documents);
+        this.initialIssues = List.copyOf(initialIssues);
         this.valueLineageDecider = Objects.requireNonNull(valueLineageDecider, "valueLineageDecider");
+        this.columnProjector = Objects.requireNonNull(columnProjector, "columnProjector");
+        this.projected = projected;
         initialIssues.stream()
                 .filter(item -> !item.code().equals("EMPTY_SOURCES") && !item.code().equals("EMPTY_SOURCES_USED"))
                 .forEach(issues::add);
@@ -431,24 +457,49 @@ public final class LineageGraph {
         return children.getOrDefault(nodeId, List.of());
     }
 
+    Set<String> nodeIds() {
+        return Set.copyOf(nodes.keySet());
+    }
+
+    List<LineageDocument> sourceDocuments() {
+        return sourceDocuments;
+    }
+
+    List<LineageIssue> initialIssues() {
+        return initialIssues;
+    }
+
+    ValueLineageDecider valueLineageDecider() {
+        return valueLineageDecider;
+    }
+
     private void addDocument(LineageDocument document, Map<String, Set<String>> targetDocuments) {
         BusinessLine businessLine = document.businessLine(BusinessLine.EAST);
         for (int derivationIndex = 0; derivationIndex < document.derivations().size(); derivationIndex++) {
             Derivation derivation = document.derivations().get(derivationIndex);
+            String originalTarget = columnId(derivation.target());
             String target = addColumn(derivation.target(), true);
             targetDocuments.computeIfAbsent(target, key -> new HashSet<>()).add(document.datasetId());
             if (needsSourceReview(derivation)) {
                 requiredNode(target).unresolved = true;
             }
+            List<LineageSource> projectedSources = derivation.sources().stream().map(this::projectSource).toList();
             Map<String, Object> definition = result("id", digest(document.datasetId(), derivationIndex),
                     "document", document.datasetId(), "index", derivationIndex, "target", target,
-                    "script_name", document.scriptName(), "sources", derivation.sources(),
+                    "script_name", document.scriptName(), "sources", projectedSources,
                     "transform_logic", derivation.transformLogic(), "metadata", derivation.metadata(),
                     "business_line", businessLine.name().toLowerCase(Locale.ROOT));
+            if (projected) {
+                definition.put("original_target", originalTarget);
+                definition.put("original_sources", derivation.sources());
+                definition.put("mapping_applied", mappingApplied(originalTarget, target));
+            }
             byTarget.computeIfAbsent(target, key -> new ArrayList<>()).add(derivations.size());
             derivations.add(definition);
             for (int sourceIndex = 0; sourceIndex < derivation.sources().size(); sourceIndex++) {
                 LineageSource source = derivation.sources().get(sourceIndex);
+                String originalSource = source.kind() == SourceKind.COLUMN
+                        ? columnId(source.ref()) : constantId(source.value());
                 String sourceId = source.kind() == SourceKind.COLUMN
                         ? addColumn(source.ref(), false) : addConstant(source.value());
                 String logicPath = resolveLogicPath(derivation.transformLogic(), source.path());
@@ -459,6 +510,12 @@ public final class LineageGraph {
                         "logic", logicPath == null ? Map.of() : derivation.transformLogic().get(logicPath),
                         "metadata", derivation.metadata(), "script_name", document.scriptName(),
                         "business_line", businessLine.name().toLowerCase(Locale.ROOT));
+                if (projected) {
+                    relation.put("original_source", originalSource);
+                    relation.put("original_target", originalTarget);
+                    relation.put("mapping_applied", mappingApplied(originalSource, sourceId)
+                            || mappingApplied(originalTarget, target));
+                }
                 int relationIndex = relations.size();
                 relations.add(relation);
                 addEdge(COLUMN, sourceId, target, relationIndex);
@@ -542,9 +599,11 @@ public final class LineageGraph {
     }
 
     private String addColumn(String reference, boolean defined) {
-        String ref = reference.toUpperCase(Locale.ROOT);
+        String original = reference.toUpperCase(Locale.ROOT);
+        ColumnProjection projection = columnProjector.project(original);
+        String ref = projection.qualifiedName().toUpperCase(Locale.ROOT);
         int fieldSeparator = ref.lastIndexOf("::");
-        String table = ref.substring(0, fieldSeparator);
+        String table = projection.parentTable().toUpperCase(Locale.ROOT);
         String column = ref.substring(fieldSeparator + 2);
         int namespaceSeparator = table.lastIndexOf('.');
         String namespace = namespaceSeparator < 0 ? "" : table.substring(0, namespaceSeparator);
@@ -562,12 +621,40 @@ public final class LineageGraph {
         return columnId;
     }
 
+    private LineageSource projectSource(LineageSource source) {
+        if (!projected || source.kind() != SourceKind.COLUMN) {
+            return source;
+        }
+        ColumnProjection projection = columnProjector.project(source.ref().toUpperCase(Locale.ROOT));
+        return LineageSource.column(projection.qualifiedName(), source.path());
+    }
+
+    private boolean mappingApplied(String originalId, String projectedId) {
+        if (!originalId.equals(projectedId)) {
+            return true;
+        }
+        if (!projectedId.startsWith("column:")) {
+            return false;
+        }
+        String original = originalId.substring("column:".length());
+        String originalTable = original.substring(0, original.lastIndexOf("::"));
+        return !requiredNode(projectedId).parentId.equals("table:" + originalTable);
+    }
+
     private String addConstant(String value) {
-        String id = "constant:" + digest(value);
+        String id = constantId(value);
         nodes.computeIfAbsent(id, key -> new Node(id, CONSTANT, value == null || value.isEmpty() ? "''" : value,
                 "CONST:" + value, "CONST", null, value));
         nodes.get(id).defined = true;
         return id;
+    }
+
+    private static String columnId(String reference) {
+        return "column:" + reference.toUpperCase(Locale.ROOT);
+    }
+
+    private String constantId(String value) {
+        return "constant:" + digest(value);
     }
 
     private void addEdge(String graphLevel, String source, String target, int relationIndex) {
