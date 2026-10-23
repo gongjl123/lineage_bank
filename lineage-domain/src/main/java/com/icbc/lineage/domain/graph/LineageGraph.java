@@ -151,6 +151,11 @@ public final class LineageGraph {
         result.put("external_tables", nodes.values().stream().filter(n -> n.type.equals(TABLE) && !n.defined).count());
         result.put("issues", issues.size());
         result.put("issue_counts", issueCounts);
+        Map<String, Long> sqlStatuses = relations.stream().map(item -> (Map<?, ?>) item.get("sql_analysis"))
+                .collect(Collectors.groupingBy(item -> String.valueOf(item.get("status")),
+                        LinkedHashMap::new, Collectors.counting()));
+        result.put("sql_analysis", result("relations", relations.size(), "statuses", sqlStatuses,
+                "requires_review", sqlStatuses.getOrDefault("fallback", 0L)));
         result.put("cycles", cycleCounts);
         result.put("namespaces", nodes.values().stream().filter(n -> !n.type.equals(CONSTANT)).map(n -> n.namespace)
                 .distinct().sorted().toList());
@@ -181,8 +186,7 @@ public final class LineageGraph {
 
     public boolean valueEdge(String source, String target) {
         for (int index : columnOutgoing.getOrDefault(source, Map.of()).getOrDefault(target, List.of())) {
-            if (valueRelationCache.computeIfAbsent(index,
-                    key -> valueLineageDecider.suppliesTargetValue(Collections.unmodifiableMap(relations.get(key))))) {
+            if (Boolean.TRUE.equals(valueRelationCache.get(index))) {
                 return true;
             }
         }
@@ -517,6 +521,7 @@ public final class LineageGraph {
             }
             byTarget.computeIfAbsent(target, key -> new ArrayList<>()).add(derivations.size());
             derivations.add(definition);
+            Set<String> reviewedLogic = new HashSet<>();
             for (int sourceIndex = 0; sourceIndex < derivation.sources().size(); sourceIndex++) {
                 LineageSource source = derivation.sources().get(sourceIndex);
                 String originalSource = source.kind() == SourceKind.COLUMN
@@ -539,6 +544,18 @@ public final class LineageGraph {
                             || mappingApplied(originalTarget, target));
                 }
                 int relationIndex = relations.size();
+                ValueLineageDecision decision = valueLineageDecider.assess(Collections.unmodifiableMap(relation));
+                relation.put("sql_analysis", decision.toMap());
+                valueRelationCache.put(relationIndex, decision.suppliesTargetValue());
+                if (decision.requiresReview() && reviewedLogic.add(String.valueOf(logicPath))) {
+                    issues.add(LineageIssue.of("SQL_ANALYSIS_FALLBACK",
+                            "SQL 未完成值来源判定，已保留 JSON 显式血缘，请核查原始 SQL 与来源。",
+                            document.datasetId(), "/derivations/" + derivationIndex + "/transform_logic/"
+                                    + String.valueOf(logicPath).replace("~", "~0").replace("/", "~1"),
+                            LineageIssue.Severity.WARNING).with("target", derivation.target())
+                            .with("path", logicPath).with("reason", decision.reason())
+                            .with("dialect", decision.dialect()).with("retained_explicit_sources", true));
+                }
                 relations.add(relation);
                 addEdge(COLUMN, sourceId, target, relationIndex);
                 if (source.kind() == SourceKind.COLUMN) {

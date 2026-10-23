@@ -63,6 +63,7 @@ Java 使用与参考工程兼容的 Apache POI 5.2.5 读取 Excel。初始化数
 - [V6 Java 迁移计划](docs/V6_JAVA_MIGRATION_PLAN.md)
 - [迁移与部署说明](docs/MIGRATION_AND_DEPLOYMENT.md)
 - [V6 对照验收报告](docs/V6_PARITY_REPORT.md)
+- [SQL 解析兜底与核查](docs/SQL_FALLBACK_STRATEGY.md)
 - [离线中间结果兼容方案](docs/OFFLINE_INTERMEDIATE_FORMAT.md)
 - [核心类与方法调用关系图（PNG）](docs/JAVA_CLASS_METHOD_CALLS.png)
 - [类图源文件（PlantUML）](docs/JAVA_CLASS_METHOD_CALLS.puml)

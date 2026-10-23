@@ -19,12 +19,12 @@ import com.alibaba.druid.sql.ast.statement.SQLUpdateSetItem;
 import com.alibaba.druid.sql.ast.statement.SQLUpdateStatement;
 import com.alibaba.druid.sql.visitor.SQLASTVisitorAdapter;
 import com.icbc.lineage.domain.graph.ValueLineageDecider;
+import com.icbc.lineage.domain.graph.ValueLineageDecision;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -36,14 +36,19 @@ import java.util.concurrent.ConcurrentMap;
 @Component
 public class DruidValueLineageDecider implements ValueLineageDecider {
 
-    private final ConcurrentMap<String, Optional<ParsedSql>> cache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, ParsedSql> cache = new ConcurrentHashMap<>();
 
     @Override
     public boolean suppliesTargetValue(Map<String, Object> relation) {
+        return assess(relation).suppliesTargetValue();
+    }
+
+    @Override
+    public ValueLineageDecision assess(Map<String, Object> relation) {
         Object value = relation.get("logic");
         Map<String, Object> logic = value instanceof Map<?, ?> map ? stringMap(map) : Map.of();
         String target = text(relation.getOrDefault("original_target", relation.get("target")));
-        return logicSuppliesTargetValue(target, logic);
+        return assessLogic(target, logic);
     }
 
     public boolean evidenceSuppliesTargetValue(Map<String, Object> evidence) {
@@ -54,32 +59,80 @@ public class DruidValueLineageDecider implements ValueLineageDecider {
     }
 
     public boolean logicSuppliesTargetValue(String target, Map<String, Object> logic) {
-        String sql = text(logic.get("sql_fragment")).trim();
-        if (sql.isEmpty()) {
-            return true;
-        }
-        Optional<ParsedSql> parsed = cache.computeIfAbsent(sql, this::parseSql);
-        if (parsed.isEmpty() || target == null || target.isBlank()) {
-            return true;
-        }
-        String targetField = target.substring(target.lastIndexOf("::") + 2).toUpperCase(Locale.ROOT);
-        Boolean result = selectProjectsTarget(parsed.get(), targetField,
-                text(logic.get("expression")).trim());
-        if (result == null) {
-            result = updateAssignsTarget(parsed.get().statement, targetField);
-        }
-        return result == null || result;
+        return assessLogic(target, logic).suppliesTargetValue();
     }
 
-    private Optional<ParsedSql> parseSql(String sql) {
+    public ValueLineageDecision assessLogic(String target, Map<String, Object> logic) {
+        String sql = text(logic.get("sql_fragment")).trim();
+        if (sql.isEmpty()) {
+            return new ValueLineageDecision(true, "json_explicit", "missing_sql", "");
+        }
+        try {
+            return analyze(target, logic, sql);
+        } catch (RuntimeException exception) {
+            // AST traversal/formatting can also reject a construct after successful parsing.
+            return fallback("analysis_failed", "");
+        }
+    }
+
+    private ValueLineageDecision analyze(String target, Map<String, Object> logic, String sql) {
+        ParsedSql parsed = cache.computeIfAbsent(sql, this::parseSql);
+        String dialect = parsed.dbType == null ? "" : parsed.dbType.name();
+        if (!parsed.failure.isEmpty()) {
+            return fallback(parsed.failure, dialect);
+        }
+        if (target == null || target.lastIndexOf("::") < 0 || target.endsWith("::")) {
+            return fallback("missing_target", dialect);
+        }
+        String targetField = identifier(target.substring(target.lastIndexOf("::") + 2));
+        SQLStatement statement = parsed.statement;
+        // INSERT(a,b) SELECT x,y maps by position; projection aliases are not target column names.
+        if (statement instanceof SQLInsertStatement insert && !insert.getColumns().isEmpty()) {
+            return fallback("positional_insert", dialect);
+        }
+        if (statement instanceof SQLCreateTableStatement create && !create.getTableElementList().isEmpty()) {
+            return fallback("positional_create", dialect);
+        }
+        Boolean result = selectProjectsTarget(parsed, targetField, text(logic.get("expression")).trim());
+        if (result == null) {
+            result = updateAssignsTarget(statement, targetField);
+        }
+        if (result == null || parsed.fragment && !result) {
+            return fallback(parsed.fragment ? "incomplete_sql_fragment" : "unresolved_statement", dialect);
+        }
+        return new ValueLineageDecision(result, parsed.fragment ? "fragment_matched"
+                : result ? "ast_matched" : "ast_excluded", result ? "target_projected" : "target_not_projected", dialect);
+    }
+
+    private ParsedSql parseSql(String sql) {
         for (DbType dbType : List.of(DbType.postgresql, DbType.oracle)) {
             try {
-                return Optional.of(new ParsedSql(SQLUtils.parseSingleStatement(sql, dbType), dbType));
+                List<SQLStatement> statements = SQLUtils.parseStatements(sql, dbType);
+                if (statements.size() > 1) {
+                    return new ParsedSql(null, dbType, false, "multiple_statements");
+                }
+                if (statements.size() == 1) {
+                    return new ParsedSql(statements.get(0), dbType, false, "");
+                }
             } catch (RuntimeException ignored) {
                 // Try the next V6-compatible dialect.
             }
         }
-        return Optional.empty();
+        // A projection fragment can prove a positive match, never a negative classification.
+        if (!sql.contains(";") && !sql.matches("(?is)^(SELECT|WITH|INSERT|UPDATE|CREATE|DELETE|MERGE|SET|ALTER|DROP|BEGIN|DECLARE)\\b.*")) {
+            for (DbType dbType : List.of(DbType.postgresql, DbType.oracle)) {
+                try {
+                    return new ParsedSql(SQLUtils.parseSingleStatement("SELECT " + sql, dbType), dbType, true, "");
+                } catch (RuntimeException ignored) {
+                    // Broken fragments remain explicit JSON relations, with a review warning.
+                }
+            }
+        }
+        return new ParsedSql(null, null, false, "parse_failed");
+    }
+
+    private ValueLineageDecision fallback(String reason, String dialect) {
+        return new ValueLineageDecision(true, "fallback", reason, dialect);
     }
 
     private Boolean selectProjectsTarget(ParsedSql parsed, String targetField, String expression) {
@@ -99,6 +152,7 @@ public class DruidValueLineageDecider implements ValueLineageDecider {
             return null;
         }
         SQLExpr parsedExpression = parseExpression(expression, parsed.dbType);
+        boolean unresolvedExpression = false;
         for (SQLSelectItem projection : projections) {
             String alias = projection.getAlias();
             if (alias != null) {
@@ -114,8 +168,9 @@ public class DruidValueLineageDecider implements ValueLineageDecider {
                     .equals(normalized(parsedExpression, parsed.dbType))) {
                 return true;
             }
+            unresolvedExpression |= parsedExpression == null;
         }
-        return false;
+        return unresolvedExpression ? null : false;
     }
 
     private Boolean updateAssignsTarget(SQLStatement statement, String targetField) {
@@ -126,8 +181,15 @@ public class DruidValueLineageDecider implements ValueLineageDecider {
         if (assignments.isEmpty()) {
             return null;
         }
-        return assignments.stream().map(SQLUpdateSetItem::getColumn).map(this::simpleName)
-                .anyMatch(targetField::equals);
+        boolean unknownColumn = false;
+        for (SQLUpdateSetItem assignment : assignments) {
+            String name = simpleName(assignment.getColumn());
+            if (targetField.equals(name)) {
+                return true;
+            }
+            unknownColumn |= name.isEmpty();
+        }
+        return unknownColumn ? null : false;
     }
 
     private SQLSelect outputSelect(SQLStatement statement) {
@@ -146,6 +208,9 @@ public class DruidValueLineageDecider implements ValueLineageDecider {
     private SQLExpr parseExpression(String expression, DbType dbType) {
         if (expression == null || expression.isBlank()) {
             return null;
+        }
+        if (expression.startsWith("CONST:")) {
+            expression = expression.substring(6);
         }
         try {
             return SQLUtils.toSQLExpr(expression, dbType);
@@ -191,10 +256,14 @@ public class DruidValueLineageDecider implements ValueLineageDecider {
     private static final class ParsedSql {
         private final SQLStatement statement;
         private final DbType dbType;
+        private final boolean fragment;
+        private final String failure;
 
-        private ParsedSql(SQLStatement statement, DbType dbType) {
+        private ParsedSql(SQLStatement statement, DbType dbType, boolean fragment, String failure) {
             this.statement = statement;
             this.dbType = dbType;
+            this.fragment = fragment;
+            this.failure = failure;
         }
     }
 
@@ -205,6 +274,12 @@ public class DruidValueLineageDecider implements ValueLineageDecider {
         public boolean visit(SQLAllColumnExpr item) {
             found = true;
             return false;
+        }
+
+        @Override
+        public boolean visit(SQLPropertyExpr item) {
+            found |= "*".equals(item.getName());
+            return !found;
         }
     }
 }

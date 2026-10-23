@@ -17,7 +17,7 @@
 | 名称字典和中文搜索展示 | 已实现；首次加载外部 V6 JSON |
 | 业务标签、直接入口、候选状态和方向规则 | 已实现 |
 | 小批量、后台任务、磁盘分片上传与限制 | 已实现 |
-| V6 静态前端 | 已迁移，资源内容与当前 V6 一致 |
+| V6 静态前端 | 已迁移；增加 SQL 来源待核查提示 |
 | SQLite | 已集成测试和启动验证 |
 | GaussDB | JDBC/Druid 实现完成；仍需在内网真实环境做上线演练 |
 | 端到端差异报告 | 按要求排除，接口返回 404 |
@@ -40,8 +40,8 @@ Python 定向回归执行结果：`4 passed in 1.68s`。覆盖业务环路、缺
 | lineage-api | 100.00% | 100.00% |
 | lineage-app | 90.77% | 100.00% |
 | lineage-common | 100.00% | 100.00% |
-| lineage-domain | 97.11% | 100.00% |
-| lineage-infrastructure | 93.02% | 100.00% |
+| lineage-domain | 97.15% | 100.00% |
+| lineage-infrastructure | 93.55% | 100.00% |
 | lineage-web | 96.02% | 100.00% |
 
 打包后的 Spring Boot JAR 已做启动冒烟：静态首页返回 200，`/api/health` 返回 200，SQLite schema 为 7，`/api/e2e/catalog` 返回 404。
@@ -51,6 +51,10 @@ Python 定向回归执行结果：`4 passed in 1.68s`。覆盖业务环路、缺
 科技评审可直接查看 [核心类与主要方法调用关系图](JAVA_CLASS_METHOD_CALLS.png)；图中保留主要运行链路，省略 DTO、配置类和辅助方法。
 
 ## 有意保留的差异
+
+2026-10-23 补充：[SQL 解析兜底与核查](SQL_FALLBACK_STRATEGY.md)。无法判定时保留显式关系，证据返回 `sql_analysis`，质量报告提供 `SQL_ANALYSIS_FALLBACK`，修复后的同身份增量更新会重新计算状态。
+
+补充后的 `mvn clean verify` 通过：46 个测试，0 失败，0 错误，0 跳过；所有模块方法覆盖率 100%。JavaScript 语法检查通过。运行打包 JAR 验证：坏 SQL 所在 JSON 正常导入、两条显式来源关系保留、共享逻辑路径只产生一条核查诊断；修复 SQL 后增量覆盖成功，核查诊断清零。SQLite 持久化重启恢复由集成测试验证。
 
 - Python V6 数据库不能原地作为 Java 数据库使用；首次迁移使用空 Java 库并全量导入当前有效 JSON。
 - SQL 值血缘判定由 Druid 实现。无法可靠解析的语句采用保守策略，保留显式来源关系，不会因为解析失败删除已有血缘。

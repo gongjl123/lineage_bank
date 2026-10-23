@@ -9,6 +9,17 @@ let savedGraph = null;
 let viewRevision = 0, statsRevision = 0, mappingRevision = 0, mappingOffset = 0;
 const labels = { EMPTY_SOURCES: "未提供来源信息", EMPTY_SOURCES_USED: "来源待核查（有下游使用）", UNUSED_LOGIC: "未引用的逻辑", MISSING_LOGIC: "缺少路径逻辑", SELF_DEPENDENCY: "字段自依赖", EXTERNAL_SOURCE: "仅被引用", CROSS_DOCUMENT_TARGET: "跨文档分片", CYCLE: "循环依赖", MULTIPLE_DERIVATIONS: "多条派生", SUMMARY_MISMATCH: "摘要不一致" };
 const reasons = { depth_limit: "已达追踪深度，边界仍有关系", node_limit: "已达节点上限", edge_limit: "已达连线上限" };
+labels.SQL_ANALYSIS_FALLBACK = "SQL 来源待核查";
+const sqlFallbackReasons = {
+  parse_failed: "SQL 不完整或当前语法解析未通过",
+  analysis_failed: "语法树处理未完成，需要核查原始 SQL",
+  multiple_statements: "包含多条 SQL，需要结合完整加工过程核查",
+  positional_insert: "目标列按位置赋值，需要核查 INSERT 列与 SELECT 输出的对应关系",
+  positional_create: "建表语句指定了目标列，需要核查列与查询输出的对应关系",
+  incomplete_sql_fragment: "只有部分 SQL，无法确认目标字段",
+  unresolved_statement: "当前语句或表达式无法完成值来源判定",
+  missing_target: "缺少可核对的目标字段"
+};
 const pretty = (data) => JSON.stringify(data, null, 2);
 const run = (fn) => (...args) => Promise.resolve().then(() => fn(...args)).catch((error) => notify(error.message, true));
 const displayQualified = (node) => node?.display_qualified_name || node?.qualified_name || "";
@@ -579,6 +590,11 @@ async function evidencePanel(container, id, filter, revision, offset = 0, q = ""
       card.append(el("small", "原始关系：" + evidence.original_source.replace("column:", "") + " → " + evidence.original_target.replace("column:", "")), jsonDisclosure("表映射依据（不属于 SQL 加工步骤）", evidence.mapping_basis));
     }
     if (evidence.source_mapping_pending || evidence.target_mapping_pending) card.append(el("small", "涉及待匹配字段，当前保留原连接。", "mapping-pending"));
+    if (evidence.sql_analysis?.requires_review) {
+      card.append(el("small", "SQL 来源待核查：" +
+        (sqlFallbackReasons[evidence.sql_analysis.reason] || "当前无法完成值来源判定") +
+        "。当前保留 JSON 中的显式血缘关系。", "mapping-pending"));
+    }
     if (evidence.logic.expression) card.append(jsonDisclosure("转换表达式", evidence.logic.expression));
     if (resolution) {
       const labelDetails = el("details"); labelDetails.append(el("summary", "标签解析依据 · " + labelStatus(resolution.status) + (resolution.method === "reference" ? " · 上游字段追溯" : "")));

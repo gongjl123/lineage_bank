@@ -153,6 +153,37 @@ public class testLineageGraph {
         assertEquals(1, columnDefinitions.get("total"));
     }
 
+    @Test
+    public void exposesFallbackEvidenceAndDeduplicatesReviewByLogicPath() {
+        ValueLineageDecider decider = new ValueLineageDecider() {
+            public boolean suppliesTargetValue(Map<String, Object> relation) { return true; }
+            public ValueLineageDecision assess(Map<String, Object> relation) {
+                return new ValueLineageDecision(true, "fallback", "parse_failed", "");
+            }
+        };
+        LineageGraph graph = new LineageGraph(List.of(document("review", "review.sql", List.of(
+                derivation("BANK.B::ID", List.of(LineageSource.column("BANK.A::ID", "p-0"),
+                        LineageSource.column("BANK.A::OTHER", "p-1")),
+                        Map.of("p", Map.of("sql_fragment", "SELECT ( FROM")))))), List.of(), decider);
+        assertTrue(graph.valueEdge(COLUMN_A_ID, COLUMN_B_ID));
+        assertEquals(1L, graph.issues().stream().filter(i -> i.code().equals("SQL_ANALYSIS_FALLBACK")).count());
+        LineageIssue issue = graph.issues().stream().filter(i -> i.code().equals("SQL_ANALYSIS_FALLBACK"))
+                .findFirst().orElseThrow();
+        assertEquals("parse_failed", issue.data().get("reason"));
+        assertEquals("/derivations/0/transform_logic/p", issue.location());
+        Map<?, ?> evidence = (Map<?, ?>) ((List<?>) graph.evidence(COLUMN_B_ID, "", "", 0, 10, "")
+                .get("items")).get(0);
+        assertEquals(true, ((Map<?, ?>) evidence.get("sql_analysis")).get("requires_review"));
+        assertEquals(2L, ((Map<?, ?>) graph.stats().get("sql_analysis")).get("requires_review"));
+
+        ValueLineageDecision explicit = new ValueLineageDecision(true, "json_explicit", "explicit_sources", "");
+        assertTrue(explicit.suppliesTargetValue());
+        assertEquals("json_explicit", explicit.status());
+        assertEquals("explicit_sources", explicit.reason());
+        assertEquals("", explicit.dialect());
+        assertFalse(explicit.requiresReview());
+    }
+
     private List<LineageDocument> documents() {
         List<LineageDocument> documents = new ArrayList<>();
         documents.add(document("doc-a", "script-a.sql", List.of(

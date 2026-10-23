@@ -120,6 +120,37 @@ public class testLineageStore {
         assertFalse(store.snapshot().mapped().stats().isEmpty());
     }
 
+    @Test
+    public void persistsFallbackRelationsAndClearsReviewAfterAValidIncrementalUpdate() throws Exception {
+        Path database = temporary.newFile("fallback.sqlite3").toPath();
+        ImportFile invalidSql = file("fallback", "S.B::X", "S.A::X");
+        String content = invalidSql.content().replace("\"expression\":\"S.X\"",
+                "\"expression\":\"S.X\",\"sql_fragment\":\"SELECT ( FROM\"");
+        ImportFile input = new ImportFile(BusinessLine.EAST, invalidSql.filename(), content);
+        LineageStore store = store(repository(database));
+        store.importFiles(List.of(input), true);
+        assertTrue(store.snapshot().documents().isEmpty());
+        store.importFiles(List.of(input), false);
+        assertTrue(store.snapshot().raw().valueEdge("column:S.A::X", "column:S.B::X"));
+        assertEquals(1L, store.snapshot().raw().issues().stream()
+                .filter(i -> i.code().equals("SQL_ANALYSIS_FALLBACK")).count());
+        store.close();
+
+        LineageStore reopened = store(repository(database));
+        assertTrue(reopened.snapshot().raw().valueEdge("column:S.A::X", "column:S.B::X"));
+        Map<?, ?> evidence = (Map<?, ?>) ((List<?>) reopened.snapshot().mapped()
+                .evidence("column:S.B::X", "", "", 0, 10, "").get("items")).get(0);
+        assertEquals("parse_failed", ((Map<?, ?>) evidence.get("sql_analysis")).get("reason"));
+        assertEquals(1L, reopened.snapshot().mapped().issues().stream()
+                .filter(i -> i.code().equals("SQL_ANALYSIS_FALLBACK")).count());
+        String fixed = content.replace("SELECT ( FROM", "SELECT A.X AS X FROM S.A A");
+        assertEquals(1, reopened.importFiles(List.of(new ImportFile(BusinessLine.EAST,
+                invalidSql.filename(), fixed)), false).get("updated"));
+        assertFalse(reopened.snapshot().raw().issues().stream()
+                .anyMatch(i -> i.code().equals("SQL_ANALYSIS_FALLBACK")));
+        reopened.close();
+    }
+
     private LineageStore store(LineageRepository repository) {
         LineageDocumentAdapter adapter = new LineageDocumentAdapter(new LineageJsonParser(),
                 new LineageSchemaValidator(), new LineageSemanticValidator());
