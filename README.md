@@ -8,9 +8,20 @@ V6 血缘系统的 Java 17 / Spring Boot 3.2.3 迁移工程。运行时完全使
 
 ```powershell
 $env:JAVA_HOME='C:\Program Files\Java\jdk-17'
-mvn clean verify
+$env:PATH="$env:JAVA_HOME\bin;$env:PATH"
+mvn clean install
 java -jar lineage-start\target\lineage-start-1.0.0-SNAPSHOT.jar
 ```
+
+首次在本机使用时，从根目录的 `pom.xml` 导入完整 Maven 工程，并执行一次 `mvn clean install`。
+`verify` 负责校验和打包；`install` 还会把父 POM 和七个本工程模块安装到本地仓库，供单独构建子模块、依赖分析及 IDE 使用。
+`com.icbc.lineage:*:1.0.0-SNAPSHOT` 是本工程模块，不从公共仓库下载。
+
+IDEA 的 Project SDK、Maven Importer JDK 和 Maven Runner JRE 均使用 JDK 17；Maven 的 Home、settings.xml 和 Local repository 应与命令行实际使用的配置一致。
+可以先运行 `mvn -version` 核对 JDK 和 Maven，再在安装完成后运行 `mvn -o dependency:tree` 检查离线依赖解析。
+若 IDEA 自带 Maven 与命令行使用不同的 settings.xml 或仓库，可在本机的 `.mvn/maven.config` 中设置 `--settings` 和 `-Dmaven.repo.local=...`，并在 IDEA 启用读取该文件后重新加载根 POM。
+机器专用路径应留在本地配置中，其他机器使用自己的 Maven 仓库路径。
+根 POM 已固定清理、资源复制、打包、安装和依赖分析插件的版本，避免命令行 Maven 3.8 与 IDEA 自带 Maven 3.9 选择不同的默认插件。
 
 默认访问地址为 `http://127.0.0.1:8769/`，默认使用 `./var/lineage.sqlite3`。生产 GaussDB 通过环境变量配置：
 
