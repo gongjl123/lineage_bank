@@ -39,6 +39,7 @@ public class testLineageStorageConfiguration {
                 "jdbc:postgresql://127.0.0.1:5432/lineage", "user", "password");
         assertEquals("org.postgresql.Driver", gauss.getDriverClassName());
         assertEquals(8, gauss.getMaxActive());
+        assertTrue(gauss.isTestOnBorrow());
         gauss.close();
         assertThrows(IllegalArgumentException.class,
                 () -> configuration.lineageDataSource("other", "jdbc:none", "", ""));

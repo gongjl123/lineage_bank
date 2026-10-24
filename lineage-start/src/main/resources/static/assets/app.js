@@ -4,8 +4,6 @@ const $ = (id) => document.getElementById(id);
 const state = { selected: null, graph: null, direction: "both", searchOffset: 0, issueOffset: 0, impactOffset: 0, stats: null, impact: null, demo: null, lineageView: "mapped" };
 let searchRevision = 0, graphRevision = 0, detailRevision = 0, issueRevision = 0, noticeTimer;
 const panelRequestRevision = new WeakMap();
-const related = { root: null, data: null, direction: "all", offset: 0, revision: 0, pending: null };
-let savedGraph = null;
 let viewRevision = 0, statsRevision = 0, mappingRevision = 0, mappingOffset = 0;
 const labels = { EMPTY_SOURCES: "未提供来源信息", EMPTY_SOURCES_USED: "来源待核查（有下游使用）", UNUSED_LOGIC: "未引用的逻辑", MISSING_LOGIC: "缺少路径逻辑", SELF_DEPENDENCY: "字段自依赖", EXTERNAL_SOURCE: "仅被引用", CROSS_DOCUMENT_TARGET: "跨文档分片", CYCLE: "循环依赖", MULTIPLE_DERIVATIONS: "多条派生", SUMMARY_MISMATCH: "摘要不一致" };
 const reasons = { depth_limit: "已达追踪深度，边界仍有关系", node_limit: "已达节点上限", edge_limit: "已达连线上限" };
@@ -191,8 +189,6 @@ async function loadGraph(id, direction = state.direction) {
   }
   if (revision !== graphRevision) return;
   if (business.root && business.root !== id) resetBusinessSelection();
-  savedGraph = null;
-  setPathMode(false);
   state.graph = data; state.direction = direction;
   renderBusinessBar();
   const root = data.nodes.find((n) => n.id === data.root);
@@ -201,11 +197,9 @@ async function loadGraph(id, direction = state.direction) {
   $("graph-empty").hidden = true;
   document.querySelectorAll("[data-trace]").forEach((b) => b.classList.toggle("active", b.dataset.trace === direction));
   drawGraph(true);
-  refreshRelated(root);
   await selectNode(root);
 }
 async function expandNode(id) {
-  if (state.graph?.path_mode) return notify("请先返回关系图，再展开相邻关系。");
   if (!state.graph) return focusNode(id);
   if (state.graph.business_tag) {
     const depth = Math.min(100, Number($("depth").value) + 1);
@@ -256,9 +250,9 @@ function drawGraph(fit = false) {
   const height = Math.max(220, ...[...columns.values()].map((items) => items.length * 98));
   levels.forEach((level, col) => {
     const items = columns.get(level).sort((a, b) => a.id.localeCompare(b.id));
-    items.forEach((node, row) => positions.set(node.id, { x: col * (data.path_mode ? 270 : 335) + 30, y: (height - items.length * 98) / 2 + row * 98 + 25 }));
+    items.forEach((node, row) => positions.set(node.id, { x: col * 335 + 30, y: (height - items.length * 98) / 2 + row * 98 + 25 }));
   });
-  bounds = { x: -10, y: -25, w: Math.max(380, levels.length * (data.path_mode ? 270 : 335) + (data.path_mode ? 40 : 0)), h: height + 110 };
+  bounds = { x: -10, y: -25, w: Math.max(380, levels.length * 335), h: height + 110 };
   for (const edge of data.edges) {
     const source = positions.get(edge.source), target = positions.get(edge.target);
     if (!source || !target) continue;
@@ -289,7 +283,7 @@ function drawGraph(fit = false) {
     const p = positions.get(node.id), kind = node.type === "constant" ? "constant" : node.defined ? "defined" : "external";
     const group = svg("g", { class: "graph-node " + kind + (node.mapping_pending ? " mapping-pending-node" : "") + (state.selected?.id === node.id ? " selected" : "") + (node.business_match ? " business-match" : ""), transform: "translate(" + p.x + "," + p.y + ")", tabindex: 0, role: "button", "aria-label": displayBusinessQualified(node), "data-node-id": node.id });
     group.append(svg("title", {}, nodeTooltip(node) + (node.source_review_required ? " · 来源待核查（有下游使用）" : node.unresolved ? " · 未提供来源信息" : "")), svg("rect", { width: 230, height: 68, rx: 7 }), svg("circle", { cx: 14, cy: 21, r: 3, class: "node-dot" }));
-    group.append(svg("text", { x: 25, y: 25, class: "node-label" }, short(displayNodeName(node), data.path_mode ? 24 : 28)), svg("text", { x: 14, y: 49, class: "node-meta" }, short(node.type === "column" ? displayTableName(node) : (node.defined_lines?.map(x => x.toUpperCase()).join("/") || "仅引用") + " · " + displayNamespace(node), 26)));
+    group.append(svg("text", { x: 25, y: 25, class: "node-label" }, short(displayNodeName(node), 28)), svg("text", { x: 14, y: 49, class: "node-meta" }, short(node.type === "column" ? displayTableName(node) : (node.defined_lines?.map(x => x.toUpperCase()).join("/") || "仅引用") + " · " + displayNamespace(node), 26)));
     group.append(svg("text", { x: 217, y: 49, class: "node-meta", "text-anchor": "end" }, node.mapping_pending ? "待匹配" : !node.defined ? "仅引用" : node.type === "table" ? node.field_count + " 字段" : node.self_reference_count ? "自身引用" : node.multi_node_cycle ? "循环依赖" : ""));
     group.addEventListener("click", run(() => selectNode(node)));
     group.addEventListener("dblclick", run(() => expandNode(node.id)));
@@ -299,105 +293,11 @@ function drawGraph(fit = false) {
   const status = $("graph-status");
   status.classList.toggle("warning", data.truncated);
   status.textContent = "当前显示 " + data.nodes.length + " 个数据对象、" + data.edges.length + " 条关系。" + (data.expanded ? "已补充相邻一层关系；" : "追踪层级为 " + data.depth + "；") + (data.truncated ? data.reasons.map((r) => reasons[r] || r).join("；") + "。" : "当前范围已完整显示。") + (data.approximation ? "表内字段依赖请在右侧详情中查看。" : "关系范围以 JSON 中明确记录的字段来源为准。");
-  if (data.path_mode) status.textContent = "当前只显示一条最短表级路径，共 " + data.edges.length + " 层。箭头由来源指向目标；可能还有其他路径。表级路径不代表同一个字段连续传递，可点击连线核对字段依据。";
   if (state.lineageView === "mapped") status.textContent += " 当前按表映射及 B 已有同名字段衔接；待匹配字段保留原血缘。";
   if (fit) fitView();
 }
 function applyView() { $("graph").setAttribute("viewBox", [view.x, view.y, view.w, view.h].join(" ")); }
 
-function setPathMode(active) {
-  $("path-banner").hidden = !active;
-  $("graph").classList.toggle("path-view", active);
-  for (const control of document.querySelectorAll("[data-trace],#depth,#constants")) control.disabled = active;
-}
-function relatedButton() {
-  const label = "整表全部关联";
-  $("related-open").textContent = label + (related.data ? " · " + (related.data.truncated ? "≥" : "") + related.data.total : "");
-  $("related-open").title = "查看当前表的全部上下游关联表；若当前选择的是字段，则按字段所属表统计";
-  $("related-open").disabled = !related.root;
-}
-function refreshRelated(node, force = false) {
-  const id = node.type === "table" ? node.id : node.parent_id;
-  if (!force && id === related.root && (related.data || related.pending)) { relatedButton(); return related.pending; }
-  const revision = ++related.revision;
-  related.root = id; related.data = null; related.pending = null;
-  relatedButton();
-  if (!id) return;
-  related.pending = api("associated-tables", { id }).then((data) => {
-    if (revision !== related.revision) return;
-    related.data = data;
-    relatedButton();
-    if ($("related-dialog").open) renderRelated();
-  }).catch((error) => {
-    if (revision === related.revision) {
-      $("related-open").textContent = "关联表清单 · 点击重试";
-      notify("关联表清单加载失败：" + error.message, true);
-    }
-  }).finally(() => { if (revision === related.revision) related.pending = null; });
-  return related.pending;
-}
-async function openRelated() {
-  const root = state.graph?.nodes.find((node) => node.id === state.graph.root);
-  if (!root) return;
-  await refreshRelated(root);
-  if (!related.data) return;
-  related.direction = "all"; related.offset = 0;
-  $("related-search").value = ""; $("related-distance").value = "all";
-  renderRelated();
-  $("related-dialog").showModal();
-}
-function renderRelated() {
-  const data = related.data;
-  if (!data) return;
-  const selectedRoot = state.graph?.nodes.find((node) => node.id === state.graph.root);
-  const tableScope = selectedRoot?.type === "table";
-  $("related-title").textContent = "整表全部关联";
-  $("related-root").textContent = (tableScope ? "当前表：" : "当前字段所属表：") + (displayTableName(selectedRoot) || data.root.replace("table:", ""));
-  const summary = $("related-summary"); summary.replaceChildren();
-  const total = el("div"); total.append(el("span", "全部关联表"), el("strong", (data.truncated ? "≥ " : "") + data.total), el("small", "按表去重，不含当前表")); summary.append(total);
-  for (const direction of ["upstream", "downstream"]) {
-    const item = data.summary[direction], cell = el("div");
-    cell.append(el("span", direction === "upstream" ? "上游关联表" : "下游关联表"), el("strong", (item.truncated ? "≥ " : "") + item.total), el("small", "直接 " + item.direct + " · 间接 " + item.indirect + " · 最远 " + item.max_distance + " 层")); summary.append(cell);
-  }
-  $("related-scope").textContent = (tableScope
-    ? "这是所有已导入条线中当前表的关联范围。"
-    : "当前选择的是字段或业务查询，以下仍按该字段所属整张表统计。")
-    + "不受左侧条线筛选、业务标签或画布追踪层级限制。"
-    + (data.truncated ? "查询已达节点上限，以下为部分结果。" : "已遍历当前已导入数据的全部可达表。")
-    + "层级按最短路径计算；同一张表可能同时属于上游和下游。下游代表可能涉及的范围，具体字段需查看字段血缘。";
-  if (state.lineageView === "mapped") $("related-scope").textContent += "当前按业务表归组统计，路径可通过表映射及已有同名字段衔接。";
-  $("related-scope").classList.toggle("warning", data.truncated);
-  document.querySelectorAll("[data-related-direction]").forEach((button) => {
-    const active = button.dataset.relatedDirection === related.direction;
-    button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active));
-    const count = button.dataset.relatedDirection === "all" ? data.total : data.summary[button.dataset.relatedDirection].total;
-    button.textContent = ({ all: "全部", upstream: "上游关联表", downstream: "下游关联表" }[button.dataset.relatedDirection]) + " · " + count;
-  });
-  const needle = $("related-search").value.trim().toUpperCase(), distanceFilter = $("related-distance").value;
-  const directions = related.direction === "all" ? ["upstream", "downstream"] : [related.direction];
-  const matches = (distance) => distance !== null && (distanceFilter === "all" || (distanceFilter === "direct" ? distance === 1 : distance > 1));
-  const items = data.items.filter((item) => searchableNodeName(item).includes(needle) && directions.some((direction) => matches(item[direction + "_distance"])));
-  items.sort((a, b) => Math.min(...directions.map((dir) => a[dir + "_distance"] ?? Infinity)) - Math.min(...directions.map((dir) => b[dir + "_distance"] ?? Infinity)) || a.id.localeCompare(b.id));
-  related.offset = Math.min(related.offset, Math.max(0, Math.floor((items.length - 1) / 20) * 20));
-  $("related-count").textContent = "筛选结果 " + items.length + " 张表 · 点击“查看路径”可单独查看与当前表之间的一条最短路径。";
-  const list = $("related-list"); list.replaceChildren();
-  for (const item of items.slice(related.offset, related.offset + 20)) {
-    const row = el("tr"), name = el("td", displayBusinessQualified(item)), relations = el("td"), status = el("td", item.defined ? "有目标定义" : "仅被引用"), actions = el("td");
-    name.title = nodeTooltip(item);
-    if (item.defined_lines?.length) name.append(el("small", " · " + item.defined_lines.map(x => x.toUpperCase()).join(" / ")));
-    const visibleDirections = directions.filter((direction) => matches(item[direction + "_distance"]));
-    for (const direction of visibleDirections) {
-      const distance = item[direction + "_distance"], label = direction === "upstream" ? "上游" : "下游";
-      relations.append(el("div", (distance === 1 ? "直接" : "间接") + label + " · " + distance + " 层"));
-      actions.append(button(visibleDirections.length > 1 ? "查看" + label + "路径" : "查看路径", () => showTablePath(item.id, direction)));
-    }
-    row.append(name, relations, status, actions); list.append(row);
-  }
-  $("related-empty").hidden = items.length > 0;
-  $("related-page").textContent = (Math.floor(related.offset / 20) + 1) + " / " + Math.max(1, Math.ceil(items.length / 20));
-  $("related-prev").disabled = related.offset === 0;
-  $("related-next").disabled = related.offset + 20 >= items.length;
-}
 function currentRelations(container) {
   const data = state.graph;
   if (!data?.business_tag) return;
@@ -423,34 +323,6 @@ function currentRelations(container) {
     if (edges.length > 12) pager(list, offset, 12, edges.length, render);
   };
   render();
-}
-async function showTablePath(target, direction) {
-  const revision = ++graphRevision;
-  const data = await api("table-path", { id: related.root, target, direction });
-  if (revision !== graphRevision) return;
-  if (!savedGraph) savedGraph = { graph: state.graph, direction: state.direction, selected: state.selected };
-  state.graph = data;
-  $("related-dialog").close();
-  setPathMode(true);
-  const pathNodes = new Map(data.nodes.map((node) => [node.id, node]));
-  $("graph-title").textContent = displayBusinessQualified(pathNodes.get(data.root));
-  $("graph-title").title = nodeTooltip(pathNodes.get(data.root));
-  $("path-caption").textContent = "一条最短路径 · " + data.path.map((id) => displayBusinessQualified(pathNodes.get(id)) || id.replace("table:", "")).join(" → ");
-  drawGraph(true);
-  relatedButton();
-  await selectNode(data.nodes.find((node) => node.id === data.root));
-}
-async function returnFromPath() {
-  if (!savedGraph) return;
-  ++graphRevision;
-  const previous = savedGraph; savedGraph = null;
-  state.graph = previous.graph; state.direction = previous.direction;
-  setPathMode(false);
-  const root = state.graph.nodes.find((node) => node.id === state.graph.root);
-  $("graph-title").textContent = displayBusinessQualified(root); $("graph-title").title = nodeTooltip(root);
-  document.querySelectorAll("[data-trace]").forEach((button) => button.classList.toggle("active", button.dataset.trace === state.direction));
-  drawGraph(true); relatedButton();
-  await selectNode(previous.selected || root);
 }
 function fitView() {
   const box = $("graph").getBoundingClientRect(), ratio = box.width / Math.max(1, box.height);
@@ -585,6 +457,7 @@ async function evidencePanel(container, id, filter, revision, offset = 0, q = ""
     const sourceLabel = (evidence.source_chinese_name ? evidence.source_chinese_name + " · " : "") + (evidence.source_display_name || evidence.source.replace("column:", ""));
     const targetLabel = (evidence.target_chinese_name ? evidence.target_chinese_name + " · " : "") + (evidence.target_display_name || evidence.target.replace("column:", ""));
     card.append(el("b", evidence.path + tagCaption), el("small", sourceLabel + " → " + targetLabel), el("small", "文档：" + evidence.document), el("small", "脚本：" + evidence.script_name));
+    if (evidence.value_lineage_correction) card.append(el("small", evidence.value_lineage_correction.message, "mapping-pending"));
     if (indirectCandidate) card.append(el("small", "当前 JSON 仅记录 " + (resolution.raw_key || "业务标签字段") + " = " + resolution.raw_value + "；上述中文名称来自上游标签字段定义，尚未执行行级条件。", "mapping-pending"));
     if (evidence.mapping_basis?.rows?.length) {
       card.append(el("small", "原始关系：" + evidence.original_source.replace("column:", "") + " → " + evidence.original_target.replace("column:", "")), jsonDisclosure("表映射依据（不属于 SQL 加工步骤）", evidence.mapping_basis));
@@ -693,7 +566,6 @@ async function refreshAfterDocumentsChanged() {
   const previous = state.selected?.id;
   resetBusinessSelection(); renderBusinessBar();
   ++graphRevision; ++detailRevision; ++searchRevision;
-  ++related.revision; related.root = null; related.data = null; related.pending = null;
   await refreshStats(); await search(true);
   if (previous) {
     try { await api("node", {id:previous}); await focusNode(previous); return; } catch { /* Select another object after replacement. */ }
@@ -710,13 +582,12 @@ async function changeLineageView(next, explicitId) {
     target = previous.original_ids.includes(previous.id) ? previous.id : previous.original_ids[0];
   state.lineageView = next; $("lineage-view").value = next;
   ++graphRevision; ++detailRevision; ++searchRevision; ++issueRevision; ++mappingRevision; ++statsRevision;
-  ++related.revision; related.root = null; related.data = null; related.pending = null;
-  savedGraph = null; state.graph = null; state.selected = null; state.impact = null;
-  resetBusinessSelection(); renderBusinessBar(); setPathMode(false);
+  state.graph = null; state.selected = null; state.impact = null;
+  resetBusinessSelection(); renderBusinessBar();
   $("graph-content").replaceChildren(); $("details-content").replaceChildren();
-  $("graph-empty").hidden = false; $("related-open").disabled = true;
+  $("graph-empty").hidden = false;
   $("namespace").value = "";
-  for (const id of ["related-dialog", "impact-dialog", "business-dialog", "mapping-dialog"]) if ($(id).open) $(id).close();
+  for (const id of ["impact-dialog", "business-dialog", "mapping-dialog"]) if ($(id).open) $(id).close();
   await refreshStats(); if (revision !== viewRevision) return;
   await search(true); if (revision !== viewRevision) return;
   if (target) {
@@ -763,13 +634,6 @@ for (const id of ["depth", "constants"]) $(id).addEventListener("change", run(()
 $("impact").onclick = run(() => showImpact());
 $("zoom-in").onclick = () => zoom(.8); $("zoom-out").onclick = () => zoom(1.25); $("fit").onclick = fitView;
 $("import-open").onclick = () => { if ($("line-filter").value && !importController.session && !importController.busy) $("import-line").value = $("line-filter").value; $("import-dialog").showModal(); };
-$("related-open").onclick = run(openRelated);
-$("path-return").onclick = run(returnFromPath);
-document.querySelectorAll("[data-related-direction]").forEach((button) => button.onclick = () => { related.direction = button.dataset.relatedDirection; related.offset = 0; renderRelated(); });
-$("related-search").oninput = () => { related.offset = 0; renderRelated(); };
-$("related-distance").onchange = () => { related.offset = 0; renderRelated(); };
-$("related-prev").onclick = () => { related.offset -= 20; renderRelated(); };
-$("related-next").onclick = () => { related.offset += 20; renderRelated(); };
 $("quality-open").onclick = run(async () => { await loadIssues(true); $("quality-dialog").showModal(); });
 $("stats-open").onclick = () => $("stats-dialog").showModal();
 document.querySelectorAll("[data-close]").forEach((b) => { b.onclick = () => $(b.dataset.close).close(); });

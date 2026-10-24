@@ -19,6 +19,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLRecoverableException;
+import java.sql.SQLTransientConnectionException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -86,6 +88,19 @@ public final class JdbcLineageRepository implements LineageRepository {
 
     @Override
     public List<StoredDocument> loadDocuments() {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                return loadDocumentsOnce();
+            } catch (StorageException exception) {
+                if (attempt == 1 || !retryableConnectionFailure(exception)) {
+                    throw exception;
+                }
+            }
+        }
+        throw new StorageException("Cannot load lineage documents after one connection retry");
+    }
+
+    private List<StoredDocument> loadDocumentsOnce() {
         String sql = "SELECT id,line,filename,hash,original_key,normalized_key,issues,updated_at "
                 + "FROM " + table("documents") + " ORDER BY id";
         try (Connection connection = connection();
@@ -106,6 +121,26 @@ public final class JdbcLineageRepository implements LineageRepository {
         } catch (SQLException | java.io.IOException exception) {
             throw failure("Cannot load lineage documents", exception);
         }
+    }
+
+    private boolean retryableConnectionFailure(StorageException exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (!(cause instanceof SQLException sqlException)) {
+                continue;
+            }
+            for (SQLException current = sqlException; current != null; current = current.getNextException()) {
+                if (current instanceof SQLRecoverableException
+                        || current instanceof SQLTransientConnectionException) {
+                    return true;
+                }
+                String state = current.getSQLState();
+                if (state != null && (state.startsWith("08")
+                        || state.equals("57P01") || state.equals("57P02") || state.equals("57P03"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override

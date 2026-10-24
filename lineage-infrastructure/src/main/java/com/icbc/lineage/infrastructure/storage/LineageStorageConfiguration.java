@@ -41,6 +41,7 @@ public class LineageStorageConfiguration {
         dataSource.setMinIdle(1);
         dataSource.setMaxActive(8);
         dataSource.setValidationQuery("SELECT 1");
+        dataSource.setTestOnBorrow(true);
         dataSource.setTestWhileIdle(true);
         return dataSource;
     }

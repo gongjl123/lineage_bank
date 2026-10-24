@@ -13,15 +13,23 @@ import com.icbc.lineage.domain.model.LineageSource;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.sqlite.SQLiteDataSource;
 
+import javax.sql.DataSource;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLRecoverableException;
+import java.sql.SQLException;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -116,10 +124,92 @@ public class testJdbcLineageRepository {
         assertTrue(exception.getMessage().contains("Python V6"));
     }
 
+    @Test
+    public void retriesDocumentReadOnceAfterConnectionLoss() throws Exception {
+        SQLiteDataSource sqlite = dataSource(temporary.newFile("retry.sqlite3").toPath());
+        AtomicInteger reads = new AtomicInteger();
+        DataSource flaky = failOnceOnDocumentRead(sqlite, "08006", reads);
+        JdbcLineageRepository repository = new JdbcLineageRepository(flaky, "sqlite", "");
+
+        assertTrue(repository.loadDocuments().isEmpty());
+        assertEquals(2, reads.get());
+        repository.close();
+    }
+
+    @Test
+    public void doesNotRetryDocumentReadForNonConnectionSqlError() throws Exception {
+        SQLiteDataSource sqlite = dataSource(temporary.newFile("non-retry.sqlite3").toPath());
+        AtomicInteger reads = new AtomicInteger();
+        DataSource flaky = failOnceOnDocumentRead(sqlite, "23505", reads);
+        JdbcLineageRepository repository = new JdbcLineageRepository(flaky, "sqlite", "");
+
+        assertThrows(StorageException.class, repository::loadDocuments);
+        assertEquals(1, reads.get());
+        repository.close();
+    }
+
+    @Test
+    public void stopsAfterOneRetryWhenConnectionRemainsUnavailable() throws Exception {
+        SQLiteDataSource sqlite = dataSource(temporary.newFile("persistent-failure.sqlite3").toPath());
+        AtomicInteger reads = new AtomicInteger();
+        DataSource flaky = failDocumentReads(sqlite, "08006", reads, new AtomicInteger(2));
+        JdbcLineageRepository repository = new JdbcLineageRepository(flaky, "sqlite", "");
+
+        assertThrows(StorageException.class, repository::loadDocuments);
+        assertEquals(2, reads.get());
+        repository.close();
+    }
+
     private SQLiteDataSource dataSource(Path path) {
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl("jdbc:sqlite:" + path.toAbsolutePath());
         return dataSource;
+    }
+
+    private DataSource failOnceOnDocumentRead(DataSource delegate, String sqlState, AtomicInteger reads) {
+        return failDocumentReads(delegate, sqlState, reads, new AtomicInteger(1));
+    }
+
+    private DataSource failDocumentReads(DataSource delegate, String sqlState, AtomicInteger reads,
+                                         AtomicInteger remainingFailures) {
+        return new DelegatingDataSource(delegate) {
+            @Override
+            public Connection getConnection() throws SQLException {
+                Connection connection = super.getConnection();
+                return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
+                        new Class<?>[]{Connection.class}, (proxy, method, args) -> {
+                            Object value = invoke(connection, method, args);
+                            if (!method.getName().equals("prepareStatement") || args == null
+                                    || args.length == 0 || !(args[0] instanceof String sql)
+                                    || !sql.startsWith("SELECT id,line,filename,hash,original_key")) {
+                                return value;
+                            }
+                            PreparedStatement statement = (PreparedStatement) value;
+                            return Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(),
+                                    new Class<?>[]{PreparedStatement.class}, (statementProxy, statementMethod,
+                                                                               statementArgs) -> {
+                                        if (statementMethod.getName().equals("executeQuery")) {
+                                            reads.incrementAndGet();
+                                            if (remainingFailures.getAndUpdate(count -> Math.max(0, count - 1)) > 0) {
+                                                if (sqlState.startsWith("08")) {
+                                                    throw new SQLRecoverableException("connection lost", sqlState);
+                                                }
+                                                throw new SQLException("query failed", sqlState);
+                                            }
+                                        }
+                                        return invoke(statement, statementMethod, statementArgs);
+                                    });
+                        });
+            }
+        };
+    }
+
+    private Object invoke(Object target, java.lang.reflect.Method method, Object[] args) throws Throwable {
+        try {
+            return method.invoke(target, args);
+        } catch (InvocationTargetException exception) {
+            throw exception.getCause();
+        }
     }
 
     private int count(SQLiteDataSource dataSource, String table) throws Exception {

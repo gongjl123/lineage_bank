@@ -522,6 +522,7 @@ public final class LineageGraph {
             byTarget.computeIfAbsent(target, key -> new ArrayList<>()).add(derivations.size());
             derivations.add(definition);
             Set<String> reviewedLogic = new HashSet<>();
+            List<Map<String, Object>> derivationRelations = new ArrayList<>();
             for (int sourceIndex = 0; sourceIndex < derivation.sources().size(); sourceIndex++) {
                 LineageSource source = derivation.sources().get(sourceIndex);
                 String originalSource = source.kind() == SourceKind.COLUMN
@@ -543,9 +544,23 @@ public final class LineageGraph {
                     relation.put("mapping_applied", mappingApplied(originalSource, sourceId)
                             || mappingApplied(originalTarget, target));
                 }
+                derivationRelations.add(relation);
+            }
+            List<Map<String, Object>> assessmentRelations = derivationRelations.stream()
+                    .map(Collections::unmodifiableMap).toList();
+            List<ValueLineageDecision> decisions = valueLineageDecider.assessDerivation(
+                    assessmentRelations, derivation.transformLogic());
+            for (int index = 0; index < derivationRelations.size(); index++) {
+                Map<String, Object> relation = derivationRelations.get(index);
+                ValueLineageDecision decision = decisions.get(index);
+                String logicPath = String.valueOf(relation.get("logic_path"));
+                LineageSource source = derivation.sources().get(index);
+                String sourceId = String.valueOf(relation.get("source"));
                 int relationIndex = relations.size();
-                ValueLineageDecision decision = valueLineageDecider.assess(Collections.unmodifiableMap(relation));
                 relation.put("sql_analysis", decision.toMap());
+                if (!decision.correction().isEmpty()) {
+                    relation.put("value_lineage_correction", decision.correction());
+                }
                 valueRelationCache.put(relationIndex, decision.suppliesTargetValue());
                 if (decision.requiresReview() && reviewedLogic.add(String.valueOf(logicPath))) {
                     issues.add(LineageIssue.of("SQL_ANALYSIS_FALLBACK",

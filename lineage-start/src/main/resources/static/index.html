@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>多条线数据血缘 · V6</title>
-  <link rel="stylesheet" href="/assets/style.css?v=gaussdb-v6-6">
+  <link rel="stylesheet" href="/assets/style.css?v=gaussdb-v6-7">
   <script src="/assets/business.js?v=gaussdb-v6-7" defer></script>
   <script src="/assets/import.js?v=gaussdb-v6-1" defer></script>
   <script src="/assets/documents.js?v=gaussdb-v6-1" defer></script>
-  <script src="/assets/app.js?v=gaussdb-v6-8" defer></script>
+  <script src="/assets/app.js?v=gaussdb-v6-9" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -48,10 +48,9 @@
       <div class="pager"><button id="search-prev">上一页</button><span id="search-page">1</span><button id="search-next">下一页</button></div>
     </aside>
     <section class="graph-panel panel">
-      <div class="graph-heading"><div><h1 id="graph-title">血缘关系图</h1></div><div class="graph-heading-actions"><button id="related-open" disabled>整表全部关联</button></div></div>
+      <div class="graph-heading"><div><h1 id="graph-title">血缘关系图</h1></div></div>
       <div class="graph-toolbar"><div class="button-group"><button data-trace="both">上下游</button><button data-trace="upstream">查看上游</button><button data-trace="downstream">查看下游</button></div><label>追踪层级 <select id="depth" aria-label="追踪层级"><option>1</option><option>2</option><option>3</option><option>5</option><option>10</option><option>15</option></select></label><button id="impact" class="accent demo-hidden">影响分析</button></div>
       <div id="business-graph-note" class="business-graph-note" hidden></div>
-      <div id="path-banner" class="path-banner" hidden><span id="path-caption"></span><button id="path-return">返回关系图</button></div>
       <div class="canvas-wrap">
         <svg id="graph" role="img" aria-label="血缘关系图，箭头从来源指向目标，节点可单击选择或双击展开"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#889cb1"/></marker></defs><g id="graph-content"></g></svg>
         <div id="graph-empty" class="empty-canvas"><h3>请选择数据对象</h3><p>从左侧列表选择数据表或字段，查看其上下游关系。</p><button id="load-project-empty" class="primary demo-hidden">加载项目数据</button></div>
@@ -69,15 +68,6 @@
     <input id="mapping-search" type="search" placeholder="搜索原始表、业务表或字段" aria-label="搜索待匹配字段">
     <p id="mapping-total" class="detail-kv" aria-live="polite"></p><div id="mapping-list"></div>
     <div class="pager"><button id="mapping-prev">上一页</button><span id="mapping-page"></span><button id="mapping-next">下一页</button></div>
-  </dialog>
-  <dialog id="related-dialog" class="related-dialog" aria-labelledby="related-title">
-    <div class="dialog-heading"><div><h2 id="related-title">整表全部关联</h2><p id="related-root" class="related-root"></p></div><button data-close="related-dialog" aria-label="关闭整表关联清单">✕</button></div>
-    <div id="related-summary" class="related-summary"></div>
-    <p id="related-scope" class="detail-kv"></p>
-    <div class="related-controls"><div class="button-group" role="group" aria-label="关联方向"><button data-related-direction="all" class="active" aria-pressed="true">全部</button><button data-related-direction="upstream" aria-pressed="false">上游关联表</button><button data-related-direction="downstream" aria-pressed="false">下游关联表</button></div><input id="related-search" type="search" placeholder="搜索完整表名或命名空间" aria-label="搜索关联表"><select id="related-distance" aria-label="关联层级"><option value="all">全部层级</option><option value="direct">直接关联 · 1 层</option><option value="indirect">间接关联 · 2 层及以上</option></select></div>
-    <p id="related-count" class="detail-kv" aria-live="polite"></p>
-    <div class="related-table-wrap"><table class="related-table"><thead><tr><th scope="col">表名</th><th scope="col">关联方向与层级</th><th scope="col">定义状态</th><th scope="col">操作</th></tr></thead><tbody id="related-list"></tbody></table><p id="related-empty" class="muted" hidden>没有匹配的关联表，请调整搜索或筛选条件。</p></div>
-    <div class="pager"><button id="related-prev">上一页</button><span id="related-page"></span><button id="related-next">下一页</button></div>
   </dialog>
   <dialog id="business-dialog" class="business-dialog" aria-labelledby="business-title">
     <div class="dialog-heading"><div><h2 id="business-title">选择当前字段的业务</h2><p id="business-dialog-field" class="detail-kv"></p><p class="detail-kv">列出该字段明确记录或可由父路径还原的业务。选择后只标记直接命中的加工分支，更深上游和下游作为普通字段血缘展示。</p></div><button data-close="business-dialog" aria-label="关闭业务选择">✕</button></div>
